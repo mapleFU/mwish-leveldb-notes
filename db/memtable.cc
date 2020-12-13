@@ -23,6 +23,7 @@ MemTable::MemTable(const InternalKeyComparator& comparator)
 
 MemTable::~MemTable() { assert(refs_ == 0); }
 
+// 这里是说不是实际占用，但是我感觉其实差不了多少。
 size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
 
 int MemTable::KeyComparator::operator()(const char* aptr,

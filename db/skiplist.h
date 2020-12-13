@@ -38,6 +38,8 @@ namespace leveldb {
 
 class Arena;
 
+// https://zhuanlan.zhihu.com/p/145403978 这里介绍了 skiplist 的结构，就是一个很简单的 key-value 结构。
+// 注意这里的 key 是怎么处理的，因为实际上这里没有 value。其他角度上都挺 trival 的。
 template <typename Key, class Comparator>
 class SkipList {
  private:

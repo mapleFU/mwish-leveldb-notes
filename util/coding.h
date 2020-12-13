@@ -61,6 +61,8 @@ inline void EncodeFixed32(char* dst, uint32_t value) {
   buffer[3] = static_cast<uint8_t>(value >> 24);
 }
 
+// 详见大端序和小端序。这里存储的是强制的使用一个端的顺序，以 LittleEndian 的形式存储。
+// GCC 和 Clang 会优化掉，所以就不要搞什么奇怪的瞎B操作了。
 inline void EncodeFixed64(char* dst, uint64_t value) {
   uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 

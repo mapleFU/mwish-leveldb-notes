@@ -13,6 +13,9 @@
 //    len: varint32
 //    data: uint8[len]
 
+// WriteBatch 不是一个磁盘结构，而是一个内存结构。但是内存结构也不能太大是不是（好吧，要是我就直接 key value 了）
+
+
 #include "leveldb/write_batch.h"
 
 #include "db/dbformat.h"
@@ -24,6 +27,7 @@
 namespace leveldb {
 
 // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
+// kHeader 包括 sequnece 和 count
 static const size_t kHeader = 12;
 
 WriteBatch::WriteBatch() { Clear(); }
@@ -44,7 +48,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
   if (input.size() < kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
-
+  // 实际上这个相当于内存流处理了，感觉因为 recover 也会走这里，所以会 corrupt
+  // 去掉 sequnce 和 count，不过最后会验证一下。
   input.remove_prefix(kHeader);
   Slice key, value;
   int found = 0;
@@ -79,6 +84,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   }
 }
 
+// fixed32 的 count, 等于 data_ 跳过 sequence.
 int WriteBatchInternal::Count(const WriteBatch* b) {
   return DecodeFixed32(b->rep_.data() + 8);
 }
