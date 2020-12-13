@@ -174,7 +174,15 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
+
+  /**
+   * 下面是 内存写入和读取相关的代码，会涉及 write-ahead log
+   * 1. 写日志详见：https://zhuanlan.zhihu.com/p/145178907 ，我这篇文章详细介绍了一下日志的写入代码。
+   */
+
+  // 内存正在写入的 mem
   MemTable* mem_;
+  // fronzen mem, 和一个对应的标志位
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
