@@ -7,6 +7,7 @@
 #include <cstdio>
 
 #include "leveldb/env.h"
+
 #include "util/coding.h"
 #include "util/crc32c.h"
 
@@ -43,6 +44,7 @@ bool Reader::SkipToInitialBlock() {
 
   // Skip to start of first block that can contain the initial record
   if (block_start_location > 0) {
+    // file 层面 drop
     Status skip_status = file_->Skip(block_start_location);
     if (!skip_status.ok()) {
       ReportDrop(block_start_location, skip_status);
@@ -188,6 +190,7 @@ void Reader::ReportDrop(uint64_t bytes, const Status& reason) {
 
 unsigned int Reader::ReadPhysicalRecord(Slice* result) {
   while (true) {
+    // 这一段是处理 buffer_, 如果剩下的是 trailer, 那么 skip 掉，然后读取合理的信息。返回对应的 flag.
     if (buffer_.size() < kHeaderSize) {
       if (!eof_) {
         // Last read was a full read, so this is a trailer to skip
@@ -213,6 +216,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       }
     }
 
+    // 这一段是逻辑上的读取了。
     // Parse the header
     const char* header = buffer_.data();
     const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;

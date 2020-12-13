@@ -56,7 +56,9 @@ Status Writer::AddRecord(const Slice& slice) {
     // Invariant: we never leave < kHeaderSize bytes in a block.
     assert(kBlockSize - block_offset_ - kHeaderSize >= 0);
 
+    // 目前 block 中可写入的量
     const size_t avail = kBlockSize - block_offset_ - kHeaderSize;
+    // 目前这个 block 中需要写入的数据量
     const size_t fragment_length = (left < avail) ? left : avail;
 
     RecordType type;

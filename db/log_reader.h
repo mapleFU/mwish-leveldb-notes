@@ -5,9 +5,9 @@
 #ifndef STORAGE_LEVELDB_DB_LOG_READER_H_
 #define STORAGE_LEVELDB_DB_LOG_READER_H_
 
+#include "db/log_format.h"
 #include <cstdint>
 
-#include "db/log_format.h"
 #include "leveldb/slice.h"
 #include "leveldb/status.h"
 
@@ -19,7 +19,8 @@ namespace log {
 
 class Reader {
  public:
-  // Interface for reporting errors.
+  // 感觉这个其实类似用户层的打 log 那种 Logger, 出现 corrupt
+  // 的时候上报给用户什么的。 Interface for reporting errors.
   class Reporter {
    public:
     virtual ~Reporter();
@@ -88,12 +89,19 @@ class Reader {
   SequentialFile* const file_;
   Reporter* const reporter_;
   bool const checksum_;
+  // backing_store_ 是在堆上申请的大小为 kBlockSize 的空间。
+  // TODO(mwish): 为什么是在堆上呢？
+  // 用来存放读到的信息。
   char* const backing_store_;
+  // 读 buffer, 指向 backing_store
   Slice buffer_;
+  // EOF 处理
   bool eof_;  // Last Read() indicated EOF by returning < kBlockSize
 
   // Offset of the last record returned by ReadRecord.
   uint64_t last_record_offset_;
+
+  /** 这个 end-of-buffer 指的是正在读的 buffer */
   // Offset of the first location past the end of buffer_.
   uint64_t end_of_buffer_offset_;
 
@@ -103,6 +111,9 @@ class Reader {
   // True if we are resynchronizing after a seek (initial_offset_ > 0). In
   // particular, a run of kMiddleType and kLastType records can be silently
   // skipped in this mode
+  // resyncing_
+  // 的逻辑感觉有点怪，感觉是第一次读失败了，第二次继续读的时候会出现的问题。这个时候需要调到第一个full
+  // 或者 start，然后 skip 掉一些中间的 middle 什么的。
   bool resyncing_;
 };
 
