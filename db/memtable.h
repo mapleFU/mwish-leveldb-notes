@@ -17,6 +17,11 @@ namespace leveldb {
 class InternalKeyComparator;
 class MemTableIterator;
 
+// https://zhuanlan.zhihu.com/p/145403978
+// memtable 维护了 Arena 和 SkipList(aka Table)
+// imem 和 mem 的对象都是 memtable, 然后这玩意还是线程不安全的。
+// Memtable 对外部提供的抽象是包含 Key/Value 的。
+// 单个 Key 会被编码成 Varint + Userkey + VersionTag. 从大的 VersionTag 来 Get，显然会读到最新的数据。
 class MemTable {
  public:
   // MemTables are reference counted.  The initial reference count

@@ -13,6 +13,9 @@
 
 namespace leveldb {
 
+// https://zhuanlan.zhihu.com/p/143445793
+// 上面这篇文章写了一点 arena 的逻辑，这个逻辑是单线程的，同时 arena 只会增加内存。
+// MemoryUsage 所以是准确的，
 class Arena {
  public:
   Arena();

@@ -8,6 +8,8 @@ namespace leveldb {
 
 static const int kBlockSize = 4096;
 
+// 初始化的时候全部是空白
+
 Arena::Arena()
     : alloc_ptr_(nullptr), alloc_bytes_remaining_(0), memory_usage_(0) {}
 
@@ -18,6 +20,8 @@ Arena::~Arena() {
 }
 
 char* Arena::AllocateFallback(size_t bytes) {
+  // 感觉类似 MySQL 的分裂页，如果过大的话就不是“离散空间”了，用分裂的方式单独存储。
+  // 否则做 AllocateNewBlock, 申请新的 Block
   if (bytes > kBlockSize / 4) {
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
@@ -55,6 +59,7 @@ char* Arena::AllocateAligned(size_t bytes) {
   return result;
 }
 
+// 这里申请 new block 就是要多少申请多少了。
 char* Arena::AllocateNewBlock(size_t block_bytes) {
   char* result = new char[block_bytes];
   blocks_.push_back(result);

@@ -1192,6 +1192,9 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return DB::Delete(options, key);
 }
 
+/**
+ * 绝对重要，Put/Delete 具体实现的逻辑。
+ */
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer w(&mutex_);
   w.batch = updates;
@@ -1200,6 +1203,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
   MutexLock l(&mutex_);
   writers_.push_back(&w);
+  // Writer 本身被 DBImpl::Mutex 保护，然后会任意 Notify. 如果一个 Batch Done 了就直接 Return
   while (!w.done && &w != writers_.front()) {
     w.cv.Wait();
   }
@@ -1209,6 +1213,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
   // May temporarily unlock and wait.
   Status status = MakeRoomForWrite(updates == nullptr);
+
+  // versions_ 
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
@@ -1231,6 +1237,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
         }
       }
       if (status.ok()) {
+        // 调用 InsertInto，实现内存插入逻辑。
         status = WriteBatchInternal::InsertInto(write_batch, mem_);
       }
       mutex_.Lock();
@@ -1267,6 +1274,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
+// 把多个 write-batch 拼凑起来，
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
@@ -1289,6 +1297,8 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   ++iter;  // Advance past "first"
   for (; iter != writers_.end(); ++iter) {
     Writer* w = *iter;
+    // sync 可以带 unsync write, 但是 unsync write 不能带 sync write
+    // TODO(mwish): sync 有什么用呢？是 sync flush 还是 sync write 
     if (w->sync && !first->sync) {
       // Do not include a sync write into a batch handled by a non-sync write.
       break;
@@ -1329,6 +1339,17 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       break;
     } else if (allow_delay && versions_->NumLevelFiles(0) >=
                                   config::kL0_SlowdownWritesTrigger) {
+      // 触发了 Delay, 这里 sleep 1ms, 相当于 2020 年 Seek Disk 的开销。
+      // 当然我感觉这里是一个比较简单的 delay 策略。
+      // 还有一个坑就是，感觉即使到了 hardlimit, 也会走一遍这儿，过 allow_delay.
+      // 过完了 allow_delay 之后：
+      // 1. 如果目前的 mem_ 空间足够，就跑了
+      // 2. 否则要等到 imm_ 写完
+      // 3. 如果还是在 Hardlimit, 要等 hardlimit 写完
+      // 如果爆写的话，感觉就是会到了 softlimit 然后 delay, 然后有空间有继续爆写自己。没有的话 imm_ 这个会减缓，有 imm_ 又写不下的情况会 delay。
+      // 不听写满 imm_, 然后后台压缩更不上就真的写满了。
+      // (感觉逻辑有点绕完了，实际上就是，只要到了 soft limit, 无论怎么都会 delay, 如果依然无法阻止到 hard limit, 那也没办法)
+      // TODO(mwish): 这里为什么要释放锁呢？带锁 sleep 显然不优雅，但是释放了又有谁可以拿到吗？
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -1354,12 +1375,14 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       background_work_finished_signal_.Wait();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
+      // mem --> imm_
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
       WritableFile* lfile = nullptr;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
+        // 因为失败了，所以
         versions_->ReuseFileNumber(new_log_number);
         break;
       }
@@ -1373,6 +1396,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
+      // 尝试 compact
+      // TODO(mwish): 为什么呢？
       MaybeScheduleCompaction();
     }
   }
@@ -1459,6 +1484,11 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
   v->Unref();
 }
 
+/**
+ * 这里是操作的入口，实际实现的是 DBImpl，但是 DB 本身会做一些 Delegate, 分派给 Write 去实现。
+ * Open 这个方法是 static 的，实际上丢给 DBImpl 了。然后 DBImpl 是对外封闭的。
+ */
+
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
@@ -1483,6 +1513,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   VersionEdit edit;
   // Recover handles create_if_missing, error_if_exists
   bool save_manifest = false;
+  // 开始先调用 Recover
   Status s = impl->Recover(&edit, &save_manifest);
   if (s.ok() && impl->mem_ == nullptr) {
     // Create new log and a corresponding memtable.
