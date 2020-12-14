@@ -399,6 +399,8 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   return state.found ? state.s : Status::NotFound(Slice());
 }
 
+// 更新状态的时候 auto tunning, 如果 Seek 过多会要求 Compact
+// TODO(mwish): 感觉 allow_seek 是一个条件触发有关的量，我看 Compact 那里的时候再看吧
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
   if (f != nullptr) {

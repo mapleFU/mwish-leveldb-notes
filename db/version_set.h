@@ -57,6 +57,9 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key);
 
+// Version 是单层的记录，不过我感觉它引入了一些别的逻辑, 比如 UpdateStats 和 Compact 对应的建议 感觉还蛮怪的。
+// 最后会由 MaybeScheduleCompact 来调度 Compact
+
 class Version {
  public:
   // Lookup the value for key.  If found, store it in *val and
@@ -145,12 +148,16 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
+  // 版本读写链，存放自己所在的 Set ( 一共7层 ) 和对应的 Prev 和 Next 对应的版本。
+
   VersionSet* vset_;  // VersionSet to which this Version belongs
   Version* next_;     // Next version in linked list
   Version* prev_;     // Previous version in linked list
+  // 用 shared_ptr 会死吗，我操你妈
   int refs_;          // Number of live refs to this version
 
   // List of files per level
+  // 实际上就7层, 每层其实不是指针
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.

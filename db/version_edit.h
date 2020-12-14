@@ -15,9 +15,10 @@ namespace leveldb {
 
 class VersionSet;
 
+// 文件的元信息，不过这就是
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
-
+  // 应该是对某个细资源的 RC
   int refs;
   int allowed_seeks;  // Seeks allowed until compaction
   uint64_t number;
