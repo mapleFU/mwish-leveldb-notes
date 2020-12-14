@@ -1215,6 +1215,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Status status = MakeRoomForWrite(updates == nullptr);
 
   // versions_ 
+  // 写入是如何影响版本的？可以看后面的注释。
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
@@ -1250,6 +1251,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     }
     if (write_batch == tmp_batch_) tmp_batch_->Clear();
 
+    // 写入在这里设置了版本
     versions_->SetLastSequence(last_sequence);
   }
 
