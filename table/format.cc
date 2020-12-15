@@ -28,11 +28,15 @@ Status BlockHandle::DecodeFrom(Slice* input) {
   }
 }
 
+// Note: 看起来 Footer 的 EncodeTo 处理的是不是不会带长度啊...
+// 这个 Footer 的逻辑是不是专门处理长度为 0 的字符串的？
+// 我真是草了，你怎么不 assert empty，这个 original_size 有卵用啊
 void Footer::EncodeTo(std::string* dst) const {
   const size_t original_size = dst->size();
   metaindex_handle_.EncodeTo(dst);
   index_handle_.EncodeTo(dst);
   dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
+  // 这个地方 resize 的逻辑是不是有毒
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber & 0xffffffffu));
   PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber >> 32));
   assert(dst->size() == original_size + kEncodedLength);
@@ -40,6 +44,7 @@ void Footer::EncodeTo(std::string* dst) const {
 }
 
 Status Footer::DecodeFrom(Slice* input) {
+  // 拼凑出一个 Magic
   const char* magic_ptr = input->data() + kEncodedLength - 8;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
@@ -61,6 +66,8 @@ Status Footer::DecodeFrom(Slice* input) {
   return result;
 }
 
+// 这里的文件是一个 RandomAccess 的只读文件，options 指定是否要读 cksm.
+// Handle 指定了 size 和 offset, 
 Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
                  const BlockHandle& handle, BlockContents* result) {
   result->data = Slice();
@@ -94,9 +101,14 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
     }
   }
 
+  // data 的最后一位表示 type, 这个 type 可以表示：
+  // 1. kNoCompression
+  // 2. kSnappyCompression
   switch (data[n]) {
     case kNoCompression:
       if (data != buf) {
+        // 指向别的数据，所以无法缓存
+        // TODO(mwish): 这个时候是什么情况呢？看注释是说文件接口实现的时候，特殊的 Read 实现会导致指向 underlying data.
         // File implementation gave us pointer to some other data.
         // Use it directly under the assumption that it will be live
         // while the file is open.
@@ -124,6 +136,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
         delete[] ubuf;
         return Status::Corruption("corrupted compressed block contents");
       }
+      // 读到一个新的 buf 里面。
       delete[] buf;
       result->data = Slice(ubuf, ulength);
       result->heap_allocated = true;

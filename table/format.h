@@ -23,7 +23,7 @@ struct ReadOptions;
 class BlockHandle {
  public:
   // Maximum encoding length of a BlockHandle
-  // 10 是单个 Varint64 的最大值，因为采用 Varint32 来编码。
+  // 10 是单个 Varint64 的最大值，因为采用 Varint64 来编码。
   enum { kMaxEncodedLength = 10 + 10 };
 
   BlockHandle();
@@ -93,7 +93,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
                  const BlockHandle& handle, BlockContents* result);
 
 // Implementation details follow.  Clients should ignore,
-
+// default set to UINT64_MAX
 inline BlockHandle::BlockHandle()
     : offset_(~static_cast<uint64_t>(0)), size_(~static_cast<uint64_t>(0)) {}
 

@@ -45,6 +45,7 @@ Block::~Block() {
   }
 }
 
+// 这个应该是给 Block::Iter 做的 Helper Function
 // Helper routine: decode the next block entry starting at "p",
 // storing the number of shared key bytes, non_shared key bytes,
 // and the length of the value in "*shared", "*non_shared", and

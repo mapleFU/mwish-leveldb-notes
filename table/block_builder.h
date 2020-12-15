@@ -46,6 +46,8 @@ class BlockBuilder {
   std::vector<uint32_t> restarts_;  // Restart points
   int counter_;                     // Number of entries emitted since restart
   bool finished_;                   // Has Finish() been called?
+
+  // last_key_ 用于实现前缀压缩
   std::string last_key_;
 };
 
