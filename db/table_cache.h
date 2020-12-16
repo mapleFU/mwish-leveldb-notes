@@ -46,7 +46,9 @@ class TableCache {
  private:
   Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**);
 
+  // env_ 抽出环境的内容，统一表示。
   Env* const env_;
+  // TODO(mwish): dbname_ 是不是表示多租户？
   const std::string dbname_;
   const Options& options_;
   Cache* cache_;

@@ -26,6 +26,8 @@ namespace {
 // entry being passed to its "deleter" are via Erase(), via Insert() when
 // an element with a duplicate key is inserted, or on destruction of the cache.
 //
+// 感觉这个还是实现了一套 Acquire + release 语义的。 
+//
 // The cache keeps two linked lists of items in the cache.  All items in the
 // cache are in one list or the other, and never both.  Items still referenced
 // by clients but erased from the cache are in neither list.  The lists are:
