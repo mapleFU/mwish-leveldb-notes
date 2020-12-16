@@ -14,6 +14,7 @@
 
 namespace leveldb {
 
+// 具体写入的逻辑。
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
   Status s;

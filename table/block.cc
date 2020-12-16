@@ -45,6 +45,7 @@ Block::~Block() {
   }
 }
 
+// 这个应该是给 Block::Iter 做的 Helper Function
 // Helper routine: decode the next block entry starting at "p",
 // storing the number of shared key bytes, non_shared key bytes,
 // and the length of the value in "*shared", "*non_shared", and
@@ -81,9 +82,16 @@ class Block::Iter : public Iterator {
   uint32_t const restarts_;      // Offset of restart array (list of fixed32)
   uint32_t const num_restarts_;  // Number of uint32_t entries in restart array
 
+  /**
+   * 下面是维护读取的时候的内部状态，current 是现有的状态，restart_index 是现有对应的 restart
+   */
+
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
+  // Restart 是为了 Prev 准备的。
   uint32_t restart_index_;  // Index of restart block in which current_ falls
+
+  // TODO(mwish): 这几个字段我大概知道是什么意思，但是感觉还需要 make clear 一下。
   std::string key_;
   Slice value_;
   Status status_;
@@ -222,9 +230,13 @@ class Block::Iter : public Iterator {
     value_.clear();
   }
 
+  // 找到下一个 Key
+  // 
   bool ParseNextKey() {
+    // 先改变 offset
     current_ = NextEntryOffset();
     const char* p = data_ + current_;
+    // 最远不会到这里，到 restart 那里是不可能的。
     const char* limit = data_ + restarts_;  // Restarts come right after data
     if (p >= limit) {
       // No more entries to return.  Mark as invalid.
@@ -233,6 +245,7 @@ class Block::Iter : public Iterator {
       return false;
     }
 
+    // 解析出下面几个字段对应的长度。
     // Decode next entry
     uint32_t shared, non_shared, value_length;
     p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
@@ -240,9 +253,12 @@ class Block::Iter : public Iterator {
       CorruptionError();
       return false;
     } else {
+      // key 使用 resize + append, 内存还是自己 hold 住的，value_ Slice bound 在这个 key_ 上。
       key_.resize(shared);
       key_.append(p, non_shared);
       value_ = Slice(p + non_shared, value_length);
+      
+      // 查看是否要更新 restart, 如果不要的话
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;
@@ -252,6 +268,9 @@ class Block::Iter : public Iterator {
   }
 };
 
+// Iterator 是在拿到：Comparator, data_, restart_offset_(是 data 的一部分), 
+// num_restarts 也是个元数据.
+// 实际上就相当于拿到一个 Block
 Iterator* Block::NewIterator(const Comparator* comparator) {
   if (size_ < sizeof(uint32_t)) {
     return NewErrorIterator(Status::Corruption("bad block contents"));

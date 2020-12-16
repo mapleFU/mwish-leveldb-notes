@@ -23,6 +23,7 @@ struct ReadOptions;
 class BlockHandle {
  public:
   // Maximum encoding length of a BlockHandle
+  // 10 是单个 Varint64 的最大值，因为采用 Varint64 来编码。
   enum { kMaxEncodedLength = 10 + 10 };
 
   BlockHandle();
@@ -50,6 +51,7 @@ class Footer {
   // Encoded length of a Footer.  Note that the serialization of a
   // Footer will always occupy exactly this many bytes.  It consists
   // of two block handles and a magic number.
+  // kTableMagicNumber 在后方定义，实际存储的是 MetaBlock 的 Index + DataBlock 的 Index + magic.
   enum { kEncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8 };
 
   Footer() = default;
@@ -75,6 +77,7 @@ class Footer {
 // and taking the leading 64 bits.
 static const uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
 
+// 这个是 block 的具体内容： Content + Type + CRC 是存储时的内容，在内存的时候还要有一个 block cache.
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 
@@ -90,7 +93,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
                  const BlockHandle& handle, BlockContents* result);
 
 // Implementation details follow.  Clients should ignore,
-
+// default set to UINT64_MAX
 inline BlockHandle::BlockHandle()
     : offset_(~static_cast<uint64_t>(0)), size_(~static_cast<uint64_t>(0)) {}
 

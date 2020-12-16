@@ -15,6 +15,12 @@ namespace leveldb {
 struct BlockContents;
 class Comparator;
 
+/**
+ * 单个 Block 的结构是
+ * K * Entry + N * Restart + RestartCounter + Trailer
+ * Trailer 解析逻辑在 table/format.h 和 table/format.cc
+ * TODO(mwish): 实现介绍 Iterator 逻辑。
+ */
 class Block {
  public:
   // Initialize the block with the specified contents.

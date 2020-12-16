@@ -14,6 +14,7 @@ static uint32_t BloomHash(const Slice& key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
 }
 
+// BloomFilter 比较恶心的地方是这个 FilterPolicy 接口，会 append 到一个 dst. 然后 KeyMatches 又是根据这玩意来判断的，就很滑稽...
 class BloomFilterPolicy : public FilterPolicy {
  public:
   explicit BloomFilterPolicy(int bits_per_key) : bits_per_key_(bits_per_key) {
