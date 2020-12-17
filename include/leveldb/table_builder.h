@@ -25,6 +25,7 @@ class BlockBuilder;
 class BlockHandle;
 class WritableFile;
 
+// TableBuilder 
 class LEVELDB_EXPORT TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is

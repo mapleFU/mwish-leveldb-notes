@@ -35,6 +35,8 @@ struct Table::Rep {
   Block* index_block;
 };
 
+// Table::Open 打开文件，解析 Footer
+// 这里并没有读取文件的 Data(那么文件的 Data 是什么时候读取的呢？)
 Status Table::Open(const Options& options, RandomAccessFile* file,
                    uint64_t size, Table** table) {
   *table = nullptr;
@@ -178,6 +180,8 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
         if (s.ok()) {
           block = new Block(contents);
           if (contents.cachable && options.fill_cache) {
+            // 这个时候的 Insert, block->size(), 表示插入的时候统计负载，这个时候不是 1
+            // 实际上 LRUCache 类很多地方默认参数都是1.
             cache_handle = block_cache->Insert(key, block, block->size(),
                                                &DeleteCachedBlock);
           }

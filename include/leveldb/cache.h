@@ -27,6 +27,10 @@ namespace leveldb {
 
 class LEVELDB_EXPORT Cache;
 
+// Cache 本身是一个对外暴露的 KV 结构，有集中对应的类型：
+// 1. Handle: 一个空白的透明结构，感觉比较类似 std::list 中的 iter, 代表着 handler(那你为啥不用 abseil)?
+//   Handle 的生命周期绑定应该在 Cache 上。
+// 看了一下，感觉就是把 linked list 和 unordered_map 逻辑做到一起，提供了个接口。
 // Create a new cache with a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
 LEVELDB_EXPORT Cache* NewLRUCache(size_t capacity);
@@ -45,6 +49,7 @@ class LEVELDB_EXPORT Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
+  // TODO(mwish): 这个 charge 是干啥的来着... deleter 就是生命周期对应的 Key-value 删除了。
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   //

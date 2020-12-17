@@ -20,6 +20,7 @@ class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
 
+// Table 表示单个 Sort String Table. 映射到磁盘上的单个文件。
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
 // multiple threads without external synchronization.
