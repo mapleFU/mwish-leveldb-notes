@@ -51,6 +51,9 @@ class TableCache {
   // TODO(mwish): dbname_ 是不是表示多租户？
   const std::string dbname_;
   const Options& options_;
+
+  // LRU TableCache, 对 Table 的句柄做 LRU, 感觉限制的是打开文件的数量。
+  // 这个 cache_ 是不是共享的，是独立的。TableCache 是独立使用的，而 charge 对应的都是1.
   Cache* cache_;
 };
 
