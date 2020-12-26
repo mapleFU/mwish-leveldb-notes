@@ -486,7 +486,8 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
       if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
         break;
       }
-      // 没有 Overlap, 而且不在最后两层
+      // 没有 Overlap, 而且不在最后两层. 然后算和 parent 的 Overlapping, 注意 parent 是下层。
+      // 重叠过大 的话，下层 Compaction 会显著增大开销，所以最好不要这样。
       if (level + 2 < config::kNumLevels) {
         // Check that file does not overlap too many grandparent bytes.
         GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
@@ -1251,6 +1252,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+// 优先针对 size 做 compaction, 这个和 compaction_score_ 有关
+// 然后针对 seek 做 Compaction
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level;

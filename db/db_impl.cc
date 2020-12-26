@@ -724,6 +724,8 @@ void DBImpl::BackgroundCompaction() {
   }
 
   /** non-memtable compaction **/
+  // 有可能是外部添加的 ManualCompaction
+  // TODO(mwish): 这个是什么地方加上的呢？
 
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
@@ -741,6 +743,7 @@ void DBImpl::BackgroundCompaction() {
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
   } else {
+    // 从 versions 找到能够 Compaction 的。
     c = versions_->PickCompaction();
   }
 
@@ -748,7 +751,9 @@ void DBImpl::BackgroundCompaction() {
   if (c == nullptr) {
     // Nothing to do
   } else if (!is_manual && c->IsTrivialMove()) {
-    // Move file to next level
+    // Move file to next level如果不是 manual compact 并且选出的 sstable 都处于 level-n 且不会造成过多的
+    // GrandparentOverrlap（Compaction::IsTrivialMove()），简单处理，将这些 sstable 推到
+    // level-n+1，更新 db 元信息即可(VersionSet::LogAndApply())。
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->RemoveFile(c->level(), f->number);
@@ -765,6 +770,7 @@ void DBImpl::BackgroundCompaction() {
         status.ToString().c_str(), versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
+    // 具体 Compaction 的逻辑
     status = DoCompactionWork(compact);
     if (!status.ok()) {
       RecordBackgroundError(status);
@@ -938,6 +944,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
     // Prioritize immutable compaction work
+    // 永远先把 memtable 搞死，不影响写入
     if (has_imm_.load(std::memory_order_relaxed)) {
       const uint64_t imm_start = env_->NowMicros();
       mutex_.Lock();
@@ -951,6 +958,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
+    // overlapping 过多的话，需要 stop before
     if (compact->compaction->ShouldStopBefore(key) &&
         compact->builder != nullptr) {
       status = FinishCompactionOutputFile(compact, input);
@@ -962,11 +970,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     // Handle key/value, add to state, etc.
     bool drop = false;
     if (!ParseInternalKey(key, &ikey)) {
+      // Parse 失败了，但是为什么会失败呢？
       // Do not hide error keys
       current_user_key.clear();
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
     } else {
+      // 需要是第一次出现，否则会被 overwrite.
       if (!has_current_user_key ||
           user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
               0) {
@@ -975,7 +985,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         has_current_user_key = true;
         last_sequence_for_key = kMaxSequenceNumber;
       }
-
+      // drop 表示丢弃这条数据。
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;  // (A)
@@ -1057,6 +1067,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   mutex_.Lock();
   stats_[compact->compaction->level() + 1].Add(stats);
 
+  // 添加到 VersionSet 里面，保证可读。
   if (status.ok()) {
     status = InstallCompactionResults(compact);
   }
