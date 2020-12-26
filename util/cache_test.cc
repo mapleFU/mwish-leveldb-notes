@@ -49,6 +49,7 @@ class CacheTest : public testing::Test {
     return r;
   }
 
+  // The default charge is 1, for testing
   void Insert(int key, int value, int charge = 1) {
     cache_->Release(cache_->Insert(EncodeKey(key), EncodeValue(value), charge,
                                    &CacheTest::Deleter));

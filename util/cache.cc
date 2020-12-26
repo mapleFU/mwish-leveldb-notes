@@ -26,6 +26,8 @@ namespace {
 // entry being passed to its "deleter" are via Erase(), via Insert() when
 // an element with a duplicate key is inserted, or on destruction of the cache.
 //
+// 感觉这个还是实现了一套 acquire + release 语义的, 不是 memory 那种，是管理所有权那种。
+//
 // The cache keeps two linked lists of items in the cache.  All items in the
 // cache are in one list or the other, and never both.  Items still referenced
 // by clients but erased from the cache are in neither list.  The lists are:
@@ -43,9 +45,13 @@ namespace {
 struct LRUHandle {
   void* value;
   void (*deleter)(const Slice&, void* value);
+  // TODO(mwish): next_hash 又是啥
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
+  // charge 是一个统计量，在 block_cache 中，这个统计量是 size().
+  // 在 TableCache 中，这个统计量是1.
+  // 注：TableCache 和 block 不是同一个对象。
   size_t charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
   bool in_cache;     // Whether entry is in the cache.
@@ -67,6 +73,9 @@ struct LRUHandle {
 // table implementations in some of the compiler/runtime combinations
 // we have tested.  E.g., readrandom speeds up by ~5% over the g++
 // 4.4.3's builtin hashtable.
+//
+// 感觉这个 HandleTable 的逻辑有点 Hack 了，虽然有提速，但是很多给到了非侵入式的结构上。
+// TODO(mwish): 以后再读这个吧。
 class HandleTable {
  public:
   HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
@@ -148,6 +157,7 @@ class HandleTable {
 };
 
 // A single shard of sharded cache.
+// LRUCache，一种具体的实现。
 class LRUCache {
  public:
   LRUCache();
@@ -164,6 +174,7 @@ class LRUCache {
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
   void Prune();
+  // charge 属于用户逻辑了。
   size_t TotalCharge() const {
     MutexLock l(&mutex_);
     return usage_;
@@ -215,6 +226,7 @@ LRUCache::~LRUCache() {
   }
 }
 
+// 维护两个 LRU，插入到新的链表
 void LRUCache::Ref(LRUHandle* e) {
   if (e->refs == 1 && e->in_cache) {  // If on lru_ list, move to in_use_ list.
     LRU_Remove(e);
@@ -292,6 +304,7 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
     e->next = nullptr;
   }
   while (usage_ > capacity_ && lru_.next != &lru_) {
+    // lru_.next != &lru 时，说明没问题，因为正在使用的东西是放在 in_use 的 list 里面的。
     LRUHandle* old = lru_.next;
     assert(old->refs == 1);
     bool erased = FinishErase(table_.Remove(old->key(), old->hash));
@@ -321,6 +334,8 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   FinishErase(table_.Remove(key, hash));
 }
 
+// 挑选一个来 evict, 然后预期它的 ref 成为 0, 能够安心把它的资源去除。
+// 这个时候它 ref 应该是为 0 的。
 void LRUCache::Prune() {
   MutexLock l(&mutex_);
   while (lru_.next != &lru_) {

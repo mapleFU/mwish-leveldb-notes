@@ -89,6 +89,7 @@ struct LEVELDB_EXPORT Options {
   // Control over blocks (user data is stored in a set of blocks, and
   // a block is the unit of reading from disk).
 
+  // DB 使用的是 block_cache, 它以 size(容量) 为粒度
   // If non-null, use the specified cache for blocks.
   // If null, leveldb will automatically create and use an 8MB internal cache.
   Cache* block_cache = nullptr;

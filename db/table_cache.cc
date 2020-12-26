@@ -44,11 +44,14 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
   Slice key(buf, sizeof(buf));
+  // 尝试从 LRUCache 中寻找文件句柄
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
+    // 不存在吗，所以要尝试创建一个文件句柄。
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = nullptr;
     Table* table = nullptr;
+    // 创建了一个新文件，或者复用旧文件名
     s = env_->NewRandomAccessFile(fname, &file);
     if (!s.ok()) {
       std::string old_fname = SSTTableFileName(dbname_, file_number);
@@ -66,6 +69,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
+      // 因为 TableAndFile 只是一个 table 和 file 的句柄
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
