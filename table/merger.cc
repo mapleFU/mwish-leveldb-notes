@@ -52,6 +52,8 @@ class MergingIterator : public Iterator {
     direction_ = kForward;
   }
 
+  // 这个 key 包含：
+  // key + seq + 具体的 content
   void Next() override {
     assert(Valid());
 
@@ -73,7 +75,7 @@ class MergingIterator : public Iterator {
       }
       direction_ = kForward;
     }
-
+    // Next 需要吧上一个用到的推进一下。
     current_->Next();
     FindSmallest();
   }
@@ -145,6 +147,7 @@ class MergingIterator : public Iterator {
   Direction direction_;
 };
 
+// 找到迭代的 smallest, 然后暴露出来
 void MergingIterator::FindSmallest() {
   IteratorWrapper* smallest = nullptr;
   for (int i = 0; i < n_; i++) {

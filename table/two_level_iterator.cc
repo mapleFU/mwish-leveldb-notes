@@ -15,6 +15,8 @@ namespace {
 
 typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 
+// 对于类似 index ==> data 这种需要定位 index，然后根据 index 定位到具体 data 的使用方式，
+// leveldb 封装成 TwoLevelIterator 使用。
 class TwoLevelIterator : public Iterator {
  public:
   TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
@@ -63,6 +65,7 @@ class TwoLevelIterator : public Iterator {
   Status status_;
   IteratorWrapper index_iter_;
   IteratorWrapper data_iter_;  // May be nullptr
+  // 保存 index_value(data 的 index 信息）
   // If data_iter_ is non-null, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;
@@ -113,6 +116,8 @@ void TwoLevelIterator::Prev() {
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
+  //如果 data_iter 不 valid, 那么 skip 直到它 valid. 这个地方会要求初始化 Block
+  // Index 是 block index, 指向具体的 Block, 所以不 valid 会 Init Datablock
   while (data_iter_.iter() == nullptr || !data_iter_.Valid()) {
     // Move to next block
     if (!index_iter_.Valid()) {
@@ -161,6 +166,21 @@ void TwoLevelIterator::InitDataBlock() {
 }
 
 }  // namespace
+
+// Iterator* Table::NewIterator(const ReadOptions& options) const {
+//   return NewTwoLevelIterator(
+//       rep_->index_block->NewIterator(rep_->options.comparator),
+//       &Table::BlockReader, const_cast<Table*>(this), options);
+// }
+
+
+// Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
+//                                             int level) const {
+//   return NewTwoLevelIterator(
+//       new LevelFileNumIterator(vset_->icmp_, &files_[level]), &GetFileIterator,
+//       vset_->table_cache_, options);
+// }
+
 
 Iterator* NewTwoLevelIterator(Iterator* index_iter,
                               BlockFunction block_function, void* arg,

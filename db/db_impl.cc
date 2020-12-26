@@ -1070,6 +1070,11 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 }  // anonymous namespace
 
+// 这个地方是 iterator 读的地方：
+// 第一个层次是 mem_
+// 第二个层次是 imem_
+// 然后是 内容 的 MergingIterator, 这里会走 Version::AddIterators. 这里 list 包含所有的可能性，感觉 IO 会巨大
+// 因为一个 iter 会要求这个版本所有的 File 拿到一份引用。
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {

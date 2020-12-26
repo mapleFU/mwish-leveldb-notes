@@ -14,6 +14,9 @@ namespace leveldb {
 // caches the valid() and key() results for an underlying iterator.
 // This can help avoid virtual function calls and also gives better
 // cache locality.
+// 缓存了 Key 和 valid, 为什么需要缓存呢？
+// 看了一下，比方说 MemTableIterator, 他的 Key 是：GetLengthPrefixedSlice(iter_.key());
+// 这些 key 都不是能无开销处理。
 class IteratorWrapper {
  public:
   IteratorWrapper() : iter_(nullptr), valid_(false) {}
