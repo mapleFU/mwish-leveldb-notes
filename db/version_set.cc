@@ -124,6 +124,7 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key) {
   const Comparator* ucmp = icmp.user_comparator();
+  // 这个参数调用的时候可能是 level > 0
   if (!disjoint_sorted_files) {
     // Need to check against all files
     for (size_t i = 0; i < files.size(); i++) {
@@ -461,15 +462,20 @@ void Version::Unref() {
   }
 }
 
+
+// 这里看来不是直接输出到 L0，而是需要寻找 Overlap
+// 所以实际上这里会先尝试输出到深层。
 bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
   return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level],
                                smallest_user_key, largest_user_key);
 }
 
+// 这里的逻辑是，其实可以不输出到 L0 的。但是有个问题是，如果没有下面这些层会怎么样？
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
   int level = 0;
+  // 如果在 L0 层没有 Overlap(我觉得可能性不大)
   if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
     // Push to next level if there is no overlap in next level,
     // and the #bytes overlapping in the level after that are limited.
@@ -480,6 +486,7 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
       if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
         break;
       }
+      // 没有 Overlap, 而且不在最后两层
       if (level + 2 < config::kNumLevels) {
         // Check that file does not overlap too many grandparent bytes.
         GetOverlappingInputs(level + 2, &start, &limit, &overlaps);

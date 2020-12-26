@@ -14,15 +14,17 @@
 
 namespace leveldb {
 
-// 具体写入的逻辑。
+// 具体写入的逻辑。注意，有一个隐藏约束是：meta 必须要带上 number.
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
 
+  
   std::string fname = TableFileName(dbname, meta->number);
   if (iter->Valid()) {
+    // 
     WritableFile* file;
     s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
@@ -30,8 +32,10 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
+    // 第一个必然是最小的
     meta->smallest.DecodeFrom(iter->key());
     Slice key;
+    // Builder::Add
     for (; iter->Valid(); iter->Next()) {
       key = iter->key();
       builder->Add(key, iter->value());

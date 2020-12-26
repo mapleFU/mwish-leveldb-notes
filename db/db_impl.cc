@@ -219,6 +219,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
+// 相当于做 GC
 void DBImpl::RemoveObsoleteFiles() {
   mutex_.AssertHeld();
 
@@ -497,12 +498,17 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   return status;
 }
 
+// 注意，这一不一定真的会写到 L0，实际上可以写到更深的层次。
+// 什么数据都没有的时候，似乎会考虑向更深层写
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
   mutex_.AssertHeld();
+  // 做一个简单地 metric?
   const uint64_t start_micros = env_->NowMicros();
+  // 先拿到一个新的 FileNumber
   FileMetaData meta;
   meta.number = versions_->NewFileNumber();
+  // TODO(mwish): peding_outouts_ 有什么用
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
@@ -510,6 +516,9 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 
   Status s;
   {
+    // 不持有锁的情况构建，因为这里还有个 Compaction 有关的 flag, 所以不会有另一个线程 Compaction
+    // 这里会写入一个 Table
+    // TODO(mwish): 弄清楚上面这段是不是对的。
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
     mutex_.Lock();
@@ -541,13 +550,16 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   return s;
 }
 
-// 这里对应的是 Major Compaction
+// 这里对应的是 Major Compaction，会写入 L0, L0 是有 Overlap 的
 void DBImpl::CompactMemTable() {
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
 
   // Save the contents of the memtable as a new Table
   VersionEdit edit;
+
+  // 首先，Compact 是只有单线程在 Compact 的
+  // 然后，是不是因为要改变 current, 所以使用了 Ref?
   Version* base = versions_->current();
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
@@ -561,6 +573,7 @@ void DBImpl::CompactMemTable() {
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+    // Apply 上 edit, 这个 edit 比较轻，应该比较迅速。
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
@@ -569,12 +582,14 @@ void DBImpl::CompactMemTable() {
     imm_->Unref();
     imm_ = nullptr;
     has_imm_.store(false, std::memory_order_release);
+    // GC 掉没有引用的文件。
     RemoveObsoleteFiles();
   } else {
     RecordBackgroundError(s);
   }
 }
 
+// TODO(mwish): 这就是手动 Compaction 吗？
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
   {
@@ -676,6 +691,7 @@ void DBImpl::BGWork(void* db) {
   reinterpret_cast<DBImpl*>(db)->BackgroundCall();
 }
 
+// 这里会持有 DB 的锁来进行调用。
 void DBImpl::BackgroundCall() {
   MutexLock l(&mutex_);
   assert(background_compaction_scheduled_);
@@ -684,6 +700,7 @@ void DBImpl::BackgroundCall() {
   } else if (!bg_error_.ok()) {
     // No more background work after a background error.
   } else {
+    // 真正的走 Compaction
     BackgroundCompaction();
   }
 
@@ -695,6 +712,9 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
+// 1. 如果 imm_ 不等于 nullptr, 后台会尝试将他 Compact，走 CompactMemTable
+// TODO(mwish): 1. 的驱动条件有什么？
+// 答: MaybeScheduleCompaction 调度，
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
@@ -702,6 +722,8 @@ void DBImpl::BackgroundCompaction() {
     CompactMemTable();
     return;
   }
+
+  /** non-memtable compaction **/
 
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
@@ -1146,6 +1168,8 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     mutex_.Lock();
   }
 
+  // 答: Get 的时候，走了 SST(读文件) 在这里才可能发生。
+  // TODO(mwish): 这个 UpdateStats 只在这里运行吗？
   if (have_stat_update && current->UpdateStats(stats)) {
     MaybeScheduleCompaction();
   }
@@ -1167,6 +1191,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
                        seed);
 }
 
+// TODO(mwish): 这他妈是在做啥
 void DBImpl::RecordReadSample(Slice key) {
   MutexLock l(&mutex_);
   if (versions_->current()->RecordReadSample(key)) {
@@ -1217,10 +1242,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
   // versions_ 
   // 写入是如何影响版本的？可以看后面的注释。
+  // WriteBatch 的写被，首先拿到一个 LastSequence
+  // (那么每次写入的版本会不会不一样？)
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
+    // WriteBatch 会设置 Sequence
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
 
@@ -1380,6 +1408,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // Attempt to switch to a new memtable and trigger compaction of old
       // mem --> imm_
       assert(versions_->PrevLogNumber() == 0);
+      // TODO(mwish): 这个地方是怎么生成的？
       uint64_t new_log_number = versions_->NewFileNumber();
       WritableFile* lfile = nullptr;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
@@ -1389,6 +1418,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
         versions_->ReuseFileNumber(new_log_number);
         break;
       }
+      // 这里的 delete 不代表删除文件，只代表删除 Handler, 切换新的写入文件
       delete log_;
       delete logfile_;
       logfile_ = lfile;
@@ -1400,7 +1430,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
       // 尝试 compact
-      // TODO(mwish): 为什么呢？
+      // 这里应该是一旦产生 imm_, 就觉得可以开始调度 Compaction.
       MaybeScheduleCompaction();
     }
   }

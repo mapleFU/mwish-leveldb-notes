@@ -91,6 +91,13 @@ Status TableBuilder::ChangeOptions(const Options& options) {
   return Status::OK();
 }
 
+/** 
+ * SSTable 中，我们会不停的调用 Add, 然后调用 Finish 
+ * 这个时候会重新开始一个 data block
+ * SSTable 的结构是 n*datablock + FilterBlock + IndexBlock(metaindex block, index block) + footer
+ **/
+
+
 void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
@@ -117,6 +124,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->data_block.Add(key, value);
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
+  // 到达了阈值会 Flush，实际上
   if (estimated_block_size >= r->options.block_size) {
     Flush();
   }

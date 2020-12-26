@@ -197,6 +197,7 @@ class DBImpl : public DB {
 
   SnapshotList snapshots_ GUARDED_BY(mutex_);
 
+  // 正在 pending 的集合，TODO(mwish)：什么时候会从里面去掉成员？
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
   std::set<uint64_t> pending_outputs_ GUARDED_BY(mutex_);

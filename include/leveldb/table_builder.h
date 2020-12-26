@@ -85,6 +85,7 @@ class LEVELDB_EXPORT TableBuilder {
   void WriteBlock(BlockBuilder* block, BlockHandle* handle);
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
 
+  // pimpl
   struct Rep;
   Rep* rep_;
 };
