@@ -157,6 +157,7 @@ class Version {
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
 
+  // VersionSet::Finalize() 的时候计算出对应的值。
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
@@ -312,6 +313,10 @@ class VersionSet {
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
+  // 为了尽量均匀 compact 每个 level，所以会将这一次 compact 的 end-key 作为
+  // 下一次 compact 的 start-key。compactor_pointer_就保存着每个 level
+  // 下一次 compact 的 start-key.
+  // 除了 current_外的 Version，并不会做 compact，所以这个值并不保存在 Version 中。
   std::string compact_pointer_[config::kNumLevels];
 };
 
@@ -368,12 +373,15 @@ class Compaction {
   Version* input_version_;
   VersionEdit edit_;
 
+  // 需要 compact 的 level 和下一层
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs
 
+  // Parent 这里应该指的是更深的层。
   // State used to check for number of overlapping grandparent files
   // (parent == level_ + 1, grandparent == level_ + 2)
   std::vector<FileMetaData*> grandparents_;
+
   size_t grandparent_index_;  // Index in grandparent_starts_
   bool seen_key_;             // Some output key has been seen
   int64_t overlapped_bytes_;  // Bytes of overlap between current output
