@@ -160,6 +160,7 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 // is the largest key that occurs in the file, and value() is an
 // 16-byte value containing the file number and file size, both
 // encoded using EncodeFixed64.
+// 这个其实不对内容做什么 iterator, 就是遍历文件拿一些元信息。
 class Version::LevelFileNumIterator : public Iterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
@@ -1214,19 +1215,24 @@ void VersionSet::GetRange2(const std::vector<FileMetaData*>& inputs1,
   GetRange(all, smallest, largest);
 }
 
+// 这个 Compact 会指定一个范围
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   ReadOptions options;
+
+  // 肯定不能 fill_cache 了
   options.verify_checksums = options_->paranoid_checks;
   options.fill_cache = false;
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
+  // 如果是 0 层，那么把它们内容都整合起来，否则是2个 sstable 来 merge
   const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
+      // 本层是 0 的话就把它们都聚合起来
       if (c->level() + which == 0) {
         const std::vector<FileMetaData*>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
@@ -1264,6 +1270,7 @@ Compaction* VersionSet::PickCompaction() {
     // Pick the first file that comes after compact_pointer_[level]
     for (size_t i = 0; i < current_->files_[level].size(); i++) {
       FileMetaData* f = current_->files_[level][i];
+      // 在 Compaction Filter 之后的
       if (compact_pointer_[level].empty() ||
           icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
         c->inputs_[0].push_back(f);
