@@ -200,6 +200,7 @@ class Version::LevelFileNumIterator : public Iterator {
 
  private:
   const InternalKeyComparator icmp_;
+  // 感觉这个应该是需要 Ref 的，每个拿到最大的。然后 L0 不知道怎么样，因为理论上 L0 是可能有 Overlap 的
   const std::vector<FileMetaData*>* const flist_;
   uint32_t index_;
 

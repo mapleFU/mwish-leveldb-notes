@@ -81,6 +81,7 @@ class LEVELDB_EXPORT Iterator {
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
 
  private:
+  // 就，标准库都不会用？
   // Cleanup functions are stored in a single-linked list.
   // The list's head node is inlined in the iterator.
   struct CleanupNode {
