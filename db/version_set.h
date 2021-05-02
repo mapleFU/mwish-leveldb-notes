@@ -164,6 +164,7 @@ class Version {
   int compaction_level_;
 };
 
+// VersionSet 是版本控制的一个大入口，包含 options
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
@@ -315,6 +316,7 @@ class VersionSet {
   std::string compact_pointer_[config::kNumLevels];
 };
 
+// TODO(mwish): 这尼玛又是什么鬼物
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:

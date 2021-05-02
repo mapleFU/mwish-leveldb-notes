@@ -75,7 +75,8 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 //
 // 感觉这个 HandleTable 的逻辑有点 Hack 了，虽然有提速，但是很多给到了非侵入式的结构上。
-// TODO(mwish): 以后再读这个吧。
+//
+// 这就是个简单的 Bucket + 链
 class HandleTable {
  public:
   HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
@@ -361,6 +362,7 @@ class ShardedLRUCache : public Cache {
     return Hash(s.data(), s.size(), 0);
   }
 
+  // 保留 `kNumShardBits` 位
   static uint32_t Shard(uint32_t hash) { return hash >> (32 - kNumShardBits); }
 
  public:
@@ -371,6 +373,8 @@ class ShardedLRUCache : public Cache {
     }
   }
   ~ShardedLRUCache() override {}
+
+  // 这个 hash 是用 HashSlice 算出来的
   Handle* Insert(const Slice& key, void* value, size_t charge,
                  void (*deleter)(const Slice& key, void* value)) override {
     const uint32_t hash = HashSlice(key);

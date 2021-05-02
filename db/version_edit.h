@@ -15,6 +15,8 @@ namespace leveldb {
 
 class VersionSet;
 
+// LevelDB 有 Table 和 TableCache, 同时也有 BlockCache, 但是对上层而言，似乎提供是 FileMetaData.
+// 其中别的字段都很好理解，比较恶心的是 `allowed_seeks`
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
@@ -57,6 +59,7 @@ class VersionEdit {
     compact_pointers_.push_back(std::make_pair(level, key));
   }
 
+  // * 所以实际上 AddFile 的时候，是没有 allow_seeks 的
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
@@ -70,6 +73,7 @@ class VersionEdit {
     new_files_.push_back(std::make_pair(level, f));
   }
 
+  // deleted_files_ 是不能 remove 的，所以仍然需要记录一下。
   // Delete the specified "file" from the specified "level".
   void RemoveFile(int level, uint64_t file) {
     deleted_files_.insert(std::make_pair(level, file));
@@ -86,12 +90,14 @@ class VersionEdit {
   typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
 
   std::string comparator_;
+  // 写入的最后一条 LSN
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   SequenceNumber last_sequence_;
   bool has_comparator_;
   bool has_log_number_;
+  // TODO(mwish): 这些是啥
   bool has_prev_log_number_;
   bool has_next_file_number_;
   bool has_last_sequence_;

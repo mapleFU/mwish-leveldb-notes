@@ -81,6 +81,8 @@ struct LEVELDB_EXPORT Options {
   // the next time the database is opened.
   size_t write_buffer_size = 4 * 1024 * 1024;
 
+  // TODO(mwish): 这个地方如果超过限制了会怎么样？会限制读还是会限制写？
+  //
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
   // one open file per 2MB of working set).

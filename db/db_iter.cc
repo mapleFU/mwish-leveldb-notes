@@ -180,6 +180,7 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
   assert(direction_ == kForward);
   do {
     ParsedInternalKey ikey;
+    // iter 现有且可读
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       switch (ikey.type) {
         case kTypeDeletion:

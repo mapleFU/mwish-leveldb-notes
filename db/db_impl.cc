@@ -542,12 +542,15 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 }
 
 // 这里对应的是 Major Compaction
+// 1. 
 void DBImpl::CompactMemTable() {
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
 
   // Save the contents of the memtable as a new Table
   VersionEdit edit;
+
+  // Version 拿到 current, 为什么是 current 呢，操你妈
   Version* base = versions_->current();
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
@@ -655,6 +658,9 @@ void DBImpl::RecordBackgroundError(const Status& s) {
   }
 }
 
+// MaybeScheduleCompaction 是需要带锁执行的，锁会保护 background_compaction_scheduled_
+// 和 bg_error_ 这些状态。
+// 如果没有正在执行的 Compaction，同时希望满足，会希望在后台执行 BGWork.
 void DBImpl::MaybeScheduleCompaction() {
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
@@ -699,6 +705,7 @@ void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
   if (imm_ != nullptr) {
+    // 执行 Major Compaction.
     CompactMemTable();
     return;
   }
@@ -1080,11 +1087,13 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   std::vector<Iterator*> list;
   list.push_back(mem_->NewIterator());
   mem_->Ref();
+  // imm_ 对应的 iterator
   if (imm_ != nullptr) {
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
   versions_->current()->AddIterators(options, &list);
+  // Merging iterator
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
@@ -1111,7 +1120,10 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options, const Slice& key,
                    std::string* value) {
   Status s;
+  // 锁用于保护内存
   MutexLock l(&mutex_);
+  // 其实 snapshot 就是个 seq number, 但是它是链式的。
+  // TODO(mwish): 为什么它是个链式呢？
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot =
@@ -1119,6 +1131,12 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   } else {
     snapshot = versions_->LastSequence();
   }
+
+  /**
+   * 第一步: 拿到 mem_, imm_ 和 current version, 然后把所有的结构给 Ref 了。
+   * 第二步：尝试从内存去 Get
+   * 第三步：第二部 fail 之后，磁盘 Get
+   */
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
@@ -1140,6 +1158,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
       // Done
     } else {
+      // Get 了必定有 stat update
       s = current->Get(options, lkey, value, &stats);
       have_stat_update = true;
     }
@@ -1155,9 +1174,11 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   return s;
 }
 
+// 原来你就在这
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
+  // 这里处理了 iter 的逻辑
   Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
   return NewDBIterator(this, user_comparator(), iter,
                        (options.snapshot != nullptr
