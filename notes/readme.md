@@ -278,7 +278,7 @@ struct LEVELDB_EXPORT Options {
 
 我们还有 `block_restart_interval` `reuse_logs`  `max_file_size` 这几个不太熟悉的东西。
 
-`Env*` 默认是 `PosixEnv` 的单例, 见 `util/env_posix.cc`, 这里提供了操作系统的操作。
+`Env*` 默认是 `PosixEnv` 的单例, 见 `util/env_posix.cc`, 这里提供了操作系统的操作。logger 也有 `PosixLogger` ，提供专门的 log 语义。
 
 
 
@@ -289,4 +289,140 @@ struct LEVELDB_EXPORT Options {
 ## Extra libs
 
 ### env
+
+env 定义在文件的 `util/env.h` 和 `util/env_{平台}.cc` 下面, 定义了这个平台默认的行为。和文件相关的内容全部封装在这个接口里。
+
+这里定义了：
+
+1. 文件相关的操作：
+   1. `SequentialFile`, 顺序 Read 和 Skip 的文件，提供的借口类似 OS 的接口。
+   2. `RandomAccessFile` 随机读的文件，用 `pread` 或者 `mmap` 来实现。提供一个带 `offset` 和 `size` 的 read 接口
+   3. `WriteAbleFile`, 提供了 `Append` `Close` `Flush` `Sync` 的语义。Flush 只把用户态的 buffer \( LevelDB 有个用户态 buffer `kWritableFileBufferSize = 65536` \) 丢给 `write`, `sync` 走 `fsync` 之类的语义，把文件内容同步过去。
+   4. 对文件、目录相关的创建、删除操作；rename 文件的操作
+   5. 获取文件大小
+   6. 获取文件锁的操作
+2. 时间相关的操作：
+   1. 获取现有的时间
+   2. 睡 MircoSec 的操作
+3. `Schedule` 和 `StartThread`, 对任务的操作。
+4. 获取一个平台相关的 `Logger` (或许我应该看看 Logger 库都要提供什么样的语义了)
+
+值得一提的是，这里把对 manifest 的处理做到了 file 层面上（其实我个人不太喜欢这样抽象）：
+
+```c++
+  // sync 相当于 flush + syncFd(
+  Status Sync() override {
+    // Ensure new files referred to by the manifest are in the filesystem.
+    //
+    // This needs to happen before the manifest file is flushed to disk, to
+    // avoid crashing in a state where the manifest refers to files that are not
+    // yet on disk.
+    Status status = SyncDirIfManifest();
+    if (!status.ok()) {
+      return status;
+    }
+
+    status = FlushBuffer();
+    if (!status.ok()) {
+      return status;
+    }
+
+    return SyncFd(fd_, filename_);
+  }
+```
+
+对文件加锁这里也是劝告锁，这里使用了 `fcntl` 调用。fcntl 允许更细粒度的控制，而且子进程不会和 `flock` 一样继承锁：
+
+```c++
+  Status LockFile(const std::string& filename, FileLock** lock) override {
+    *lock = nullptr;
+
+    int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
+    if (fd < 0) {
+      return PosixError(filename, errno);
+    }
+
+    if (!locks_.Insert(filename)) {
+      ::close(fd);
+      return Status::IOError("lock " + filename, "already held by process");
+    }
+
+    if (LockOrUnlock(fd, true) == -1) {
+      int lock_errno = errno;
+      ::close(fd);
+      locks_.Remove(filename);
+      return PosixError("lock " + filename, lock_errno);
+    }
+
+    *lock = new PosixFileLock(fd, filename);
+    return Status::OK();
+  }
+  
+int LockOrUnlock(int fd, bool lock) {
+  errno = 0;
+  struct ::flock file_lock_info;
+  std::memset(&file_lock_info, 0, sizeof(file_lock_info));
+  file_lock_info.l_type = (lock ? F_WRLCK : F_UNLCK);
+  file_lock_info.l_whence = SEEK_SET;
+  file_lock_info.l_start = 0;
+  file_lock_info.l_len = 0;  // Lock/unlock entire file.
+  return ::fcntl(fd, F_SETLK, &file_lock_info);
+}
+```
+
+需要注意的是，`flock` 锁与进程关联，而 `fcntl` 和文件描述符表关联。
+
+![163562F4-E525-42A1-B7BF-92CECDFED3AF](../images/163562F4-E525-42A1-B7BF-92CECDFED3AF.png)
+
+它获取时间的调用比较正常，就是简单拿到现有 `us`. 这个很可能会走 vDSO, 或者走 syscall。同时获取时间可能本身会有 50ns 左右的开销（详见 PingCAP 的 zhongzc 的 talk）。
+
+https://stackoverflow.com/questions/12392278/measure-time-in-linux-time-vs-clock-vs-getrusage-vs-clock-gettime-vs-gettimeof
+
+#### 线程相关
+
+```c++
+void PosixEnv::Schedule(
+    void (*background_work_function)(void* background_work_arg),
+    void* background_work_arg) {
+  background_work_mutex_.Lock();
+
+  // Start the background thread, if we haven't done so already.
+  if (!started_background_thread_) {
+    started_background_thread_ = true;
+    std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
+    background_thread.detach();
+  }
+
+  // If the queue is empty, the background thread may be waiting for work.
+  if (background_work_queue_.empty()) {
+    background_work_cv_.Signal();
+  }
+
+  background_work_queue_.emplace(background_work_function, background_work_arg);
+  background_work_mutex_.Unlock();
+}
+
+void PosixEnv::BackgroundThreadMain() {
+  while (true) {
+    background_work_mutex_.Lock();
+
+    // Wait until there is work to be done.
+    while (background_work_queue_.empty()) {
+      background_work_cv_.Wait();
+    }
+
+    assert(!background_work_queue_.empty());
+    auto background_work_function = background_work_queue_.front().function;
+    void* background_work_arg = background_work_queue_.front().arg;
+    background_work_queue_.pop();
+
+    background_work_mutex_.Unlock();
+    background_work_function(background_work_arg);
+  }
+}
+```
+
+（话说这两个玩意竟然共享同一把锁...）
+
+其实我感觉这里让我有点迷惑的是，它 `Signal` 之后再 `Unlock`，感觉很奇怪= =
 

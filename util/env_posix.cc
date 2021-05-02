@@ -301,8 +301,10 @@ class PosixWritableFile final : public WritableFile {
     return status;
   }
 
+  // flush 相当于清空用户态 buffer
   Status Flush() override { return FlushBuffer(); }
 
+  // sync 相当于 flush + syncFd(
   Status Sync() override {
     // Ensure new files referred to by the manifest are in the filesystem.
     //
@@ -436,6 +438,7 @@ class PosixWritableFile final : public WritableFile {
   const std::string dirname_;  // The directory of filename_.
 };
 
+// 类似 flock, 但是继承关系不同. 它相当于锁在一个文件描述符表了。
 int LockOrUnlock(int fd, bool lock) {
   errno = 0;
   struct ::flock file_lock_info;
