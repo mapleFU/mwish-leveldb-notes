@@ -39,7 +39,7 @@ namespace leveldb {
 class Arena;
 
 // https://zhuanlan.zhihu.com/p/145403978 这里介绍了 skiplist 的结构，就是一个很简单的 key-value 结构。
-// 注意这里的 key 是怎么处理的，因为实际上这里没有 value。其他角度上都挺 trival 的。
+// 注意这里的 key 是怎么处理的，因为实际上这里没有 value。其他角度上都挺 trivial 的。
 template <typename Key, class Comparator>
 class SkipList {
  private:
@@ -62,6 +62,7 @@ class SkipList {
   bool Contains(const Key& key) const;
 
   // Iteration over the contents of a skip list
+  // Note: 它的 comparator 使用 SkipList 的 Iter.
   class Iterator {
    public:
     // Initialize an iterator over the specified list.

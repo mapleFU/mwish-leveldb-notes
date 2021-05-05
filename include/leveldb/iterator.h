@@ -72,6 +72,9 @@ class LEVELDB_EXPORT Iterator {
   // If an error has occurred, return it.  Else return an ok status.
   virtual Status status() const = 0;
 
+  // iter 本身就是个简单的 iter, 但是可能和别的东西生命周期挂钩
+  // cleanup 把这个绑在上面了，当然我还是觉得 arg1 arg2 这两东西挺 sb 的...直接 std::function 不好吗。
+
   // Clients are allowed to register function/arg1/arg2 triples that
   // will be invoked when this iterator is destroyed.
   //

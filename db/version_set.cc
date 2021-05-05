@@ -160,6 +160,9 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
 // is the largest key that occurs in the file, and value() is an
 // 16-byte value containing the file number and file size, both
 // encoded using EncodeFixed64.
+//
+// 这个丢出的信息是 Iterator 的元信息(不是用户的 key, value, 而是文件的 <最大key> 和
+// <(文件号, 文件大小)>
 class Version::LevelFileNumIterator : public Iterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
@@ -206,6 +209,7 @@ class Version::LevelFileNumIterator : public Iterator {
   // Backing store for value().  Holds the file number and size.
   mutable char value_buf_[16];
 };
+
 
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const Slice& file_value) {

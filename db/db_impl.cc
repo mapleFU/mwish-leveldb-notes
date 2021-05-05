@@ -1055,6 +1055,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
 namespace {
 
+// 这个 mu_ 并不是维护 IterState 内部状态的
+// 这个 mu_ 是从 db 里面借来的，维护 mem/imm/version 的状态。
 struct IterState {
   port::Mutex* const mu;
   Version* const version GUARDED_BY(mu);
@@ -1065,6 +1067,7 @@ struct IterState {
       : mu(mutex), version(version), mem(mem), imm(imm) {}
 };
 
+// unref 一些需要的东西
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
   state->mu->Lock();
@@ -1085,6 +1088,10 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 
   // Collect together all needed child iterators
   std::vector<Iterator*> list;
+
+  // Note: 下面两种都是 Memtable::Table::Iterator.
+
+  // 虽然这个顺序也没关系，话说为啥不是先 ref 在 new 呢
   list.push_back(mem_->NewIterator());
   mem_->Ref();
   // imm_ 对应的 iterator
@@ -1092,7 +1099,10 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
+
+  // 添加 versions 里面的 Iterator.
   versions_->current()->AddIterators(options, &list);
+
   // Merging iterator
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
@@ -1177,7 +1187,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   return s;
 }
 
-// 原来你就在这
+// 最外层创建 iterator.
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;

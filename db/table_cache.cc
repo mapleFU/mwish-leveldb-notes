@@ -79,6 +79,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   return s;
 }
 
+// 先 从 TableCache FindTable, 再构建 Table::Iterator, 然后注册 release Table 的接口(还给 TableCache).
 Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   uint64_t file_number, uint64_t file_size,
                                   Table** tableptr) {

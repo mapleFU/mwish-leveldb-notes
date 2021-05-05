@@ -185,7 +185,6 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
         if (s.ok()) {
           block = new Block(contents);
           // 这个地方需要 fill_cache 才能写入 cache
-          //
           if (contents.cachable && options.fill_cache) {
             // 这个时候的 Insert, block->size(), 表示插入的时候统计负载，这个时候不是 1
             // 实际上 LRUCache 类很多地方默认参数都是1.
@@ -216,6 +215,8 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   return iter;
 }
 
+// Table 创建的是 TwoLevelIterator, 首先是 IndexBlock 的 iterator, 然后是对应的 block reader.
+// 实际上这里就是拿到 index 信息，然后能够读到 block 的信息。
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),

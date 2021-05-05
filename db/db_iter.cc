@@ -36,6 +36,17 @@ namespace {
 // combines multiple entries for the same userkey found in the DB
 // representation into a single entry while accounting for sequence
 // numbers, deletion markers, overwrites, etc.
+//
+// DBIter 提供的是用户态的语义。同时提供了上层采样的语义。
+// 如上面 leveldb 注释描述，底层吐出来的通常是 (userkey, total order, type).
+// 可能包括多余的、删掉了的信息。
+// 这个 DBIter 把这些内容统合起来，只突出用户需要的 Key.
+//
+// 此外，可能用户注意到这里编码了随机数的逻辑。没错，这里还会采样走 compaction，这段代码逻辑在：
+// https://groups.google.com/g/leveldb/c/yL6h1mAOc20/m/vLU64RylIdMJ
+// 很坑爹对吧。
+//
+// 此外这逻辑还有点像 IteratorWrapper... 好缝合怪.
 class DBIter : public Iterator {
  public:
   // Which direction is the iterator currently moving?
@@ -113,12 +124,15 @@ class DBIter : public Iterator {
   Status status_;
   std::string saved_key_;    // == current key when direction_==kReverse
   std::string saved_value_;  // == current raw value when direction_==kReverse
+  // 描述 iter 的方向. 这个方向是说, next 之后就是正, prev 就是反向。
   Direction direction_;
   bool valid_;
   Random rnd_;
   size_t bytes_until_read_sampling_;
 };
 
+// ParseKey 有一个 bytes_until_read_sampling_ 的采样算法，这是读了这么多 bytes 就去采样的算法。
+// 此外，他就是很简单的去 parse.
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   Slice k = iter_->key();
 
@@ -146,6 +160,9 @@ void DBIter::Next() {
     // iter_ is pointing just before the entries for this->key(),
     // so advance into the range of entries for this->key() and then
     // use the normal skipping code below.
+    //
+    // 注意，如果是 Reverse 方向，那么已经处理了 user_key, 所以不用 SaveKey.
+    // TODO(mwish): 这个什么情况是 invalid 的?
     if (!iter_->Valid()) {
       iter_->SeekToFirst();
     } else {
@@ -171,21 +188,26 @@ void DBIter::Next() {
     }
   }
 
+  // saved_key_ 已经有了现有的 key, skipping 表示要越过它
   FindNextUserEntry(true, &saved_key_);
 }
 
+// skipping = true 的时候, skip 本轮表示需要跳过的 key
+// 这里调用 ParseKey(&ikey) 拿到 iter_ 现有的状态(这点很重要)
 void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
   assert(direction_ == kForward);
   do {
     ParsedInternalKey ikey;
-    // iter 现有且可读
+    // iter 现有且可读(大于自己的 sequence 的内容是不可读的)
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       switch (ikey.type) {
         case kTypeDeletion:
           // Arrange to skip all upcoming entries for this key since
           // they are hidden by this deletion.
+          //
+          // 注意，这个地方已经 Parse 出来是 user_key 了
           SaveKey(ikey.user_key, skip);
           skipping = true;
           break;
@@ -194,6 +216,7 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
               user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
             // Entry hidden
           } else {
+            // 我们找到了它，顺手清楚了上次的 saved_key
             valid_ = true;
             saved_key_.clear();
             return;
@@ -214,6 +237,8 @@ void DBIter::Prev() {
     // iter_ is pointing at the current entry.  Scan backwards until
     // the key changes so we can use the normal reverse scanning code.
     assert(iter_->Valid());  // Otherwise valid_ would have been false
+
+    // 这里就是简单存到 save-key 里面，试探性的 prev 一下。
     SaveKey(ExtractUserKey(iter_->key()), &saved_key_);
     while (true) {
       iter_->Prev();

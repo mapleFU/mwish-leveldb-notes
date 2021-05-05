@@ -14,6 +14,8 @@ namespace leveldb {
 
 class DBImpl;
 
+// Note: DBIter 是最外层的 iterator, 暴露给用户使用
+//
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.

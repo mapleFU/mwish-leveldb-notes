@@ -11,6 +11,7 @@
 namespace leveldb {
 
 namespace {
+// 合并所有的 iterator, 串行去 search.
 class MergingIterator : public Iterator {
  public:
   MergingIterator(const Comparator* comparator, Iterator** children, int n)
