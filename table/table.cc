@@ -150,6 +150,8 @@ static void ReleaseBlock(void* arg, void* h) {
   cache->Release(handle);
 }
 
+// Note: 这里面会找到 block cache.
+//
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,

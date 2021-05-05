@@ -183,13 +183,17 @@ class DBImpl : public DB {
   // 内存正在写入的 mem
   MemTable* mem_;
   // frozen mem, 和一个对应的标志位
+  // 这个地方其实也很怪，含义是从 imm_ 来 ref / 获得引用是需要被 mutex_ guard 的。
+  // 具体从 imm_ 里面 Ref 完了或者读数据不要
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
   uint64_t logfile_number_ GUARDED_BY(mutex_);
+
   // log_'s lifetime is bounded to logfile_.
   log::Writer* log_;
-  // TODO(mwish): sampling what
+
+  // TODO(mwish): sampling what?
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
@@ -203,6 +207,7 @@ class DBImpl : public DB {
   std::set<uint64_t> pending_outputs_ GUARDED_BY(mutex_);
 
   // Has a background compaction been scheduled or is running?
+  // 这个感觉像是把逻辑额外做到 env 里头了
   bool background_compaction_scheduled_ GUARDED_BY(mutex_);
 
   ManualCompaction* manual_compaction_ GUARDED_BY(mutex_);

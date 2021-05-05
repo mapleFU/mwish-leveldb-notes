@@ -1120,10 +1120,10 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options, const Slice& key,
                    std::string* value) {
   Status s;
-  // 锁用于保护内存
+
   MutexLock l(&mutex_);
-  // 其实 snapshot 就是个 seq number, 但是它是链式的。
-  // TODO(mwish): 为什么它是个链式呢？
+
+  // 如果外部设置了 snapshot 来读，那就用外部的 Snapshot, 否则使用版本链最后一个序号。
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot =
@@ -1140,11 +1140,13 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
+  // 为什么是 current? 不从旧的读吗？
   Version* current = versions_->current();
   mem->Ref();
   if (imm != nullptr) imm->Ref();
   current->Ref();
 
+  // 这个东西就很怪。。没有默认初始化，然后就靠是否读磁盘来判断这个。
   bool have_stat_update = false;
   Version::GetStats stats;
 
@@ -1158,13 +1160,14 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
       // Done
     } else {
-      // Get 了必定有 stat update
+      // Get 了磁盘必定有 stat update.
       s = current->Get(options, lkey, value, &stats);
       have_stat_update = true;
     }
     mutex_.Lock();
   }
 
+  // 处理一些点查的信息
   if (have_stat_update && current->UpdateStats(stats)) {
     MaybeScheduleCompaction();
   }

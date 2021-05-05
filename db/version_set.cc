@@ -252,6 +252,11 @@ enum SaverState {
   kDeleted,
   kCorrupt,
 };
+
+// 保存一个 search 的结果：
+// 1. 是否被找到/删除
+// 2. 外部给一个 user_key 和 ucmp
+// 3. 结果放在 value 里面
 struct Saver {
   SaverState state;
   const Comparator* ucmp;
@@ -278,6 +283,7 @@ static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
   return a->number > b->number;
 }
 
+// 给出一个 user_key 和 internal_key, 对每个 overlapping 进行搜索。
 void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                                  bool (*func)(void*, int, FileMetaData*)) {
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -285,6 +291,7 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
   // Search level-0 in order from newest to oldest.
   std::vector<FileMetaData*> tmp;
   tmp.reserve(files_[0].size());
+  // Level0 没法二分，只能 traverse.
   for (uint32_t i = 0; i < files_[0].size(); i++) {
     FileMetaData* f = files_[0][i];
     if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
@@ -321,12 +328,16 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
   }
 }
 
+// 需要注意的是，这个地方 Get 应该需要在这之前 Ref 一下。
+// Referenced file 才能保证不出问题
+// CNM，为什么不用 boost::intrusive_ptr
 Status Version::Get(const ReadOptions& options, const LookupKey& k,
                     std::string* value, GetStats* stats) {
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
 
   struct State {
+    // saver 保存状态值
     Saver saver;
     GetStats* stats;
     const ReadOptions* options;
@@ -360,6 +371,8 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
       }
       switch (state->saver.state) {
         case kNotFound:
+          // 需要注意的一点是，这个地方很诡异的是，需要再 find 才会这样
+          // 然后这个没找到显然是没过 bloom filter 的。
           return true;  // Keep searching in other files
         case kFound:
           state->found = true;
@@ -367,6 +380,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
         case kDeleted:
           return false;
         case kCorrupt:
+          // OK but corrupt
           state->s =
               Status::Corruption("corrupted key for ", state->saver.user_key);
           state->found = true;
@@ -386,6 +400,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   state.last_file_read_level = -1;
 
   state.options = &options;
+  // 用户不包括 length 的 key
   state.ikey = k.internal_key();
   state.vset = vset_;
 

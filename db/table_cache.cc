@@ -47,11 +47,11 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   // 尝试从 LRUCache 中寻找文件句柄
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
-    // 不存在吗，所以要尝试创建一个文件句柄。
+    // 在 13 年某个 patch 之后，filename 从 .sst 变成了 .ldb.
+    // 但是 sst 是还能被解读的，所以在 parsing 失败后，转到 sst.
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = nullptr;
     Table* table = nullptr;
-    // 创建了一个新文件，或者复用旧文件名
     s = env_->NewRandomAccessFile(fname, &file);
     if (!s.ok()) {
       std::string old_fname = SSTTableFileName(dbname_, file_number);

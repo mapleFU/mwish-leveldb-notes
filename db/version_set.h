@@ -137,6 +137,8 @@ class Version {
 
   Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
 
+  // TODO(mwish): 这个需要变更一些统计信息，所以没有变成 static
+  //
   // Call func(arg, level, f) for every file that overlaps user_key in
   // order from newest to oldest.  If an invocation of func returns
   // false, makes no more calls.
