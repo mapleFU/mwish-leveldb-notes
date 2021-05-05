@@ -36,7 +36,9 @@ struct Table::Rep {
 };
 
 // Table::Open 打开文件，解析 Footer
-// 这里并没有读取文件的 Data(那么文件的 Data 是什么时候读取的呢？)
+// 这里并没有读取文件的 Data(那么文件的 Data 使后续读取的)
+// 这几部分实际上被当作是比较小的部分, TableCache 维护这个，占的 charge 为1。
+// 与之对比，block cache 的 size 是内容的大小。
 Status Table::Open(const Options& options, RandomAccessFile* file,
                    uint64_t size, Table** table) {
   *table = nullptr;
@@ -171,6 +173,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
     BlockContents contents;
     if (block_cache != nullptr) {
       char cache_key_buffer[16];
+      // <cache_id, offset> 共同构成编码的 key
       EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
@@ -181,6 +184,8 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
         s = ReadBlock(table->rep_->file, options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);
+          // 这个地方需要 fill_cache 才能写入 cache
+          //
           if (contents.cachable && options.fill_cache) {
             // 这个时候的 Insert, block->size(), 表示插入的时候统计负载，这个时候不是 1
             // 实际上 LRUCache 类很多地方默认参数都是1.

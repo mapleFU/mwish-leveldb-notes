@@ -512,6 +512,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  // 这里有个 mmap limiter.
   Status NewRandomAccessFile(const std::string& filename,
                              RandomAccessFile** result) override {
     *result = nullptr;

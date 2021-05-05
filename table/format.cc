@@ -107,8 +107,10 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
   switch (data[n]) {
     case kNoCompression:
       if (data != buf) {
-        // 指向别的数据，所以无法缓存
-        // TODO(mwish): 这个时候是什么情况呢？看注释是说文件接口实现的时候，特殊的 Read 实现会导致指向 underlying data.
+        // 这个数据是 Read 的时候初始化的。这个时候是什么情况呢？看注释是说文件接口实现的时候，特殊的 Read 实现会导致指向 underlying data.
+        // 这个是 File 实现相关的，相当于已经 cache 了。
+        // 这里比如 PosixMmapReadableFile.
+        //
         // File implementation gave us pointer to some other data.
         // Use it directly under the assumption that it will be live
         // while the file is open.

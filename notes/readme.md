@@ -304,7 +304,9 @@ env 定义在文件的 `util/env.h` 和 `util/env_{平台}.cc` 下面, 定义了
 
 1. 文件相关的操作：
    1. `SequentialFile`, 顺序 Read 和 Skip 的文件，提供的借口类似 OS 的接口。
-   2. `RandomAccessFile` 随机读的文件，用 `pread` 或者 `mmap` 来实现。提供一个带 `offset` 和 `size` 的 read 接口
+   2. `RandomAccessFile` 随机读的文件，用 `pread` 或者 `mmap` 来实现。提供一个带 `offset` 和 `size` 的 read 接口；需要注意的是，这里使用了 Limit, 限制数量为 1000 的 `mmap` 的 `RandomAccessFile` （这个配置参数是可以修改的）。作者认为：
+      1. mmap 本身可以在 random access 的情况下优化读（感觉这是因为 LevelDB 本身 Block Cache 使用的 LRU 策略比较简单）
+      2. Mmap
    3. `WriteAbleFile`, 提供了 `Append` `Close` `Flush` `Sync` 的语义。Flush 只把用户态的 buffer \( LevelDB 有个用户态 buffer `kWritableFileBufferSize = 65536` \) 丢给 `write`, `sync` 走 `fsync` 之类的语义，把文件内容同步过去。
    4. 对文件、目录相关的创建、删除操作；rename 文件的操作
    5. 获取文件大小
