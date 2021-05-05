@@ -27,7 +27,7 @@
 namespace leveldb {
 
 // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
-// kHeader 包括 sequnece 和 count
+// kHeader 包括 sequence 和 count
 static const size_t kHeader = 12;
 
 WriteBatch::WriteBatch() { Clear(); }

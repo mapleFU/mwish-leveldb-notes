@@ -282,7 +282,15 @@ struct LEVELDB_EXPORT Options {
 
 
 
+## Block/Table Definitions
+
+
+
 ## Read Path
+
+
+
+## Write Path
 
 
 
@@ -426,3 +434,30 @@ void PosixEnv::BackgroundThreadMain() {
 
 其实我感觉这里让我有点迷惑的是，它 `Signal` 之后再 `Unlock`，感觉很奇怪= =
 
+#### 其他 `env`
+
+`helpers/memenv` 提供了把 memory 当成 env 的环境，搜了一下代码，发现是给 testutil 用的
+
+### util/arena
+
+https://zhuanlan.zhihu.com/p/143445793
+
+回头注意一下接口：
+
+1. Allocate: 直接申请对应的内存
+2. `AllocateAligned`: 申请对齐 pointer size 的内存
+
+arena 本身提供给 SkipList 使用。`MemTable::Add` 调用了 `Allocate`, SkipList 的 NewNode 调用了 `AllocateAligned` 来创建 `Node`, 因为指针操作的特性，所以需要这个。`MemTable::Add` 使用这个来把 key 和一些别的 info 创建到 key 里面。
+
+这个 `aligned` 和系统相关的 align alloc 还是有点差异的，
+
+### util/bloom
+
+我还照着 leveldb 写了一个：https://github.com/mapleFU/md-snippets/tree/master/components/bloom_filter
+
+首先，FilterPolicy 是可以丢到 `Options` 里面的，所以这个地方可以自己定制一些对 key 的规则。
+
+其次，这里：
+
+1. 同时 bloom 需要的多个 hash 是根据 `util/hash` 一个 hash 来 `rotate` 生成的
+2. bloom 需要的 key 数目是 fixed 的，因为写下去就知道有多少了。

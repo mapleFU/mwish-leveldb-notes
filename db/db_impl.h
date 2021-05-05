@@ -182,13 +182,14 @@ class DBImpl : public DB {
 
   // 内存正在写入的 mem
   MemTable* mem_;
-  // fronzen mem, 和一个对应的标志位
+  // frozen mem, 和一个对应的标志位
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
   uint64_t logfile_number_ GUARDED_BY(mutex_);
   // log_'s lifetime is bounded to logfile_.
   log::Writer* log_;
+  // TODO(mwish): sampling what
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
