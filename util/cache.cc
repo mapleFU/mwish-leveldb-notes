@@ -45,7 +45,7 @@ namespace {
 struct LRUHandle {
   void* value;
   void (*deleter)(const Slice&, void* value);
-  // TODO(mwish): next_hash 又是啥
+  // next_hash 是 hash 的下一个对象，这里物理布局在一起，逻辑上不在一起。
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;

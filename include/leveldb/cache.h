@@ -49,7 +49,9 @@ class LEVELDB_EXPORT Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
-  // TODO(mwish): 这个 charge 是干啥的来着... deleter 就是生命周期对应的 Key-value 删除了。
+  // 这个 charge 是用户态切分 bucket 的，TableCache 的 charge 为统一的 1, BlockCache 的 cache 和 block 的大小有关
+  // ... deleter 就是生命周期对应的 Key-value 删除了。
+  //
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   //

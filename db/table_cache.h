@@ -48,7 +48,7 @@ class TableCache {
 
   // env_ 抽出环境的内容，统一表示。
   Env* const env_;
-  // TODO(mwish): dbname_ 是不是表示多租户？
+  // 这里需要读取盘, 所以需要 dbname_, 这个和多租户是没关系的(但是同目录确实可以有不同的 dbname?)
   const std::string dbname_;
   const Options& options_;
 

@@ -550,8 +550,10 @@ void DBImpl::CompactMemTable() {
   // Save the contents of the memtable as a new Table
   VersionEdit edit;
 
-  // Version 拿到 current, 为什么是 current 呢，操你妈
+  // Version 拿到 current
   Version* base = versions_->current();
+
+  // 写 L0 SST
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
   base->Unref();
@@ -578,6 +580,8 @@ void DBImpl::CompactMemTable() {
   }
 }
 
+// 用户上层可能发现有些地方读起来有问题，然后手动的 `CompactRange`
+// TODO(mwish): 我真的搞不懂，为啥正常的方法会调用到 `TEST_` 开头的方法。
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
   {
@@ -703,6 +707,11 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
+// Compaction 有下面几种类型:
+// 1. CompactMemTable: 优先级最高
+// 2. ManualCompaction: 优先级次高
+// 3. Size Compaction: 优先级比 SeekCompaction
+// 4. SeekCompaction
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
@@ -735,6 +744,9 @@ void DBImpl::BackgroundCompaction() {
   if (c == nullptr) {
     // Nothing to do
   } else if (!is_manual && c->IsTrivialMove()) {
+    // 作为 trivial move 的 compaction, 可以直接把上层内容移动到下层
+    // 这里就是把 edit 移动到 c->level() + 1.
+
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
@@ -1326,7 +1338,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
 // 把多个 write-batch 拼凑起来，写入。
+//
 // 写入限制1: max_size, 这里设置了 1 << 20, 这个值非常大，因为 Log 一个 chunk 也没多大啊...
+// 所以我感觉这里不写入大 Key 的时候，这里就是把所有的 writers_ 里面弄到一起。有大 key/value 的时候，这里会
+// 限制最大的写入大小。(感觉还是不适合存太大?)
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
@@ -1351,7 +1366,7 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   for (; iter != writers_.end(); ++iter) {
     Writer* w = *iter;
     // sync 可以带 async write, 但是 async write 不能带 sync write
-    // TODO(mwish): sync 有什么用呢？是 sync flush 还是 sync write 
+    // sync 是表示会用户态 flush 再 sync.
     if (w->sync && !first->sync) {
       // Do not include a sync write into a batch handled by a non-sync write.
       break;
@@ -1409,7 +1424,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // 如果爆写的话，感觉就是会到了 softlimit 然后 delay, 然后有空间有继续爆写自己。没有的话 imm_ 这个会减缓，有 imm_ 又写不下的情况会 delay。
       // 不听写满 imm_, 然后后台压缩更不上就真的写满了。
       // (感觉逻辑有点绕完了，实际上就是，只要到了 soft limit, 无论怎么都会 delay, 如果依然无法阻止到 hard limit, 那也没办法)
-      // TODO(mwish): 这里为什么要释放锁呢？带锁 sleep 显然不优雅，但是释放了又有谁可以拿到吗？
+      //
+      // 这里释放锁，是为了前面能 push_back 到写队列里面，构成同一个 queue 里面
+      //
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each

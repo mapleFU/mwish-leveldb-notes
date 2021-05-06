@@ -137,7 +137,7 @@ class Version {
 
   Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
 
-  // TODO(mwish): 这个需要变更一些统计信息，所以没有变成 static
+  // 这个需要变更一些统计信息，所以没有变成 static 方法.
   //
   // Call func(arg, level, f) for every file that overlaps user_key in
   // order from newest to oldest.  If an invocation of func returns
@@ -331,7 +331,6 @@ class VersionSet {
   std::string compact_pointer_[config::kNumLevels];
 };
 
-// TODO(mwish): 这尼玛又是什么鬼物
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:

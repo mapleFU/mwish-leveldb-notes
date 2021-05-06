@@ -43,6 +43,7 @@ class VersionEdit {
     has_log_number_ = true;
     log_number_ = num;
   }
+  // TODO(mwish): 为啥要有 PrevLogNumber
   void SetPrevLogNumber(uint64_t num) {
     has_prev_log_number_ = true;
     prev_log_number_ = num;

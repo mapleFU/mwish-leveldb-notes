@@ -88,6 +88,8 @@ class DBImpl : public DB {
 
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
+  //
+  // 读写耗时/读写的字节数
   struct CompactionStats {
     CompactionStats() : micros(0), bytes_read(0), bytes_written(0) {}
 
@@ -194,7 +196,7 @@ class DBImpl : public DB {
   // log_'s lifetime is bounded to logfile_.
   log::Writer* log_;
 
-  // TODO(mwish): sampling what?
+  // 构建 iterator 的时候, 会发一个 `++seed_` 当成种子, 然后在读取的时候采样。
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
@@ -218,6 +220,7 @@ class DBImpl : public DB {
   // Have we encountered a background error in paranoid mode?
   Status bg_error_ GUARDED_BY(mutex_);
 
+  // 每一层的统计信息。
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
 };
 

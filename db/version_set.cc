@@ -1263,6 +1263,9 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   return result;
 }
 
+// PickCompaction 有:
+// 1. size compaction
+// 2. Seek Compaction
 Compaction* VersionSet::PickCompaction() {
   Compaction* c;
   int level;

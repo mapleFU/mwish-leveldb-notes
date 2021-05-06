@@ -162,7 +162,9 @@ void DBIter::Next() {
     // use the normal skipping code below.
     //
     // 注意，如果是 Reverse 方向，那么已经处理了 user_key, 所以不用 SaveKey.
-    // TODO(mwish): 这个什么情况是 invalid 的?
+    //
+    // Q: 这个什么情况是 invalid 的?
+    // A: 有的内部迭代器没有设置，或者到头了。
     if (!iter_->Valid()) {
       iter_->SeekToFirst();
     } else {

@@ -19,7 +19,8 @@ class Comparator;
  * 单个 Block 的结构是
  * K * Entry + N * Restart + RestartCounter + Trailer
  * Trailer 解析逻辑在 table/format.h 和 table/format.cc
- * TODO(mwish): 实现介绍 Iterator 逻辑。
+ *
+ * 这里的 Iterator 会构建一个两阶段的 TwoLevel 的迭代器。
  */
 class Block {
  public:
