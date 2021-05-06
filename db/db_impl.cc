@@ -697,6 +697,8 @@ void DBImpl::BackgroundCall() {
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
+  //
+  // async call.
   MaybeScheduleCompaction();
   background_work_finished_signal_.SignalAll();
 }
@@ -1228,26 +1230,36 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 }
 
 /**
- * 绝对重要，Put/Delete 具体实现的逻辑。
+ * 绝对重要，Put/Delete 具体实现的逻辑。同时外部也可以丢给一个 WriteBatch 来实现原子写。
  */
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
+  // acquire lock for cv. which can used to notify all.
   Writer w(&mutex_);
   w.batch = updates;
   w.sync = options.sync;
   w.done = false;
 
+  // 这个地方做了一轮简单的写者选举，这个地方是不是 lock-free 的 list 要好一些呢？
   MutexLock l(&mutex_);
   writers_.push_back(&w);
   // Writer 本身被 DBImpl::Mutex 保护，然后会任意 Notify. 如果一个 Batch Done 了就直接 Return
+  // 这个地方可以做一个 `writers_` 假设:
+  // 1. 如果是初始状态，队列全是空的，那么这个地方甚至不会 w.cv.Wait(), 第一个对象全部成功的拿到了 lock. 进入
+  //    后续操作。别的 ::Write 会阻塞在这里。注意，`MakeRoomForWrite` 阻塞的时候，这里也会被 push 进来，就是在 (1) 自己的 batch 了。
+  // 2. BuildBatchGroup 之后，mutex 会放锁
+  // 3. (1) 描述的操作执行完后，writers_ 需要把前面一个 batch 的 front 给 pop 掉，这里堆积的 content 就被一起写了
+  // 4. 进入循环，每次的 Write 处理自己写入到堆积的内容，然后下一次做处理
   while (!w.done && &w != writers_.front()) {
     w.cv.Wait();
   }
+  // done 本身是 master 设置的，所以这里 done 了可以直接返回。
   if (w.done) {
     return w.status;
   }
 
   // May temporarily unlock and wait.
-  Status status = MakeRoomForWrite(updates == nullptr);
+  // 当 updates == nullptr 的时候，会被当成强制 flush. 比如 TEST_CompactMem
+  Status status = MakeRoomForWrite(/* force */updates == nullptr);
 
   // versions_ 
   // 写入是如何影响版本的？可以看后面的注释。
@@ -1256,6 +1268,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
+    // 所以这个 sequence 是跳变的，中间可能有洞
     last_sequence += WriteBatchInternal::Count(write_batch);
 
     // Add to log and apply to memtable.  We can release the lock
@@ -1267,6 +1280,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       bool sync_error = false;
       if (status.ok() && options.sync) {
+        // Sync: Flush to store and fsync.
         status = logfile_->Sync();
         if (!status.ok()) {
           sync_error = true;
@@ -1311,7 +1325,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-null batch
-// 把多个 write-batch 拼凑起来，
+// 把多个 write-batch 拼凑起来，写入。
+// 写入限制1: max_size, 这里设置了 1 << 20, 这个值非常大，因为 Log 一个 chunk 也没多大啊...
 WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
@@ -1330,11 +1345,12 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   }
 
   *last_writer = first;
+  // w must be the writers_.begin(), so it size must larger than 0.
   std::deque<Writer*>::iterator iter = writers_.begin();
   ++iter;  // Advance past "first"
   for (; iter != writers_.end(); ++iter) {
     Writer* w = *iter;
-    // sync 可以带 unsync write, 但是 unsync write 不能带 sync write
+    // sync 可以带 async write, 但是 async write 不能带 sync write
     // TODO(mwish): sync 有什么用呢？是 sync flush 还是 sync write 
     if (w->sync && !first->sync) {
       // Do not include a sync write into a batch handled by a non-sync write.
@@ -1364,6 +1380,13 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
+// 这个地方实际上也是单线程调用的。
+// 这里在 Loop 里：
+// 1. 查看 L1 文件是否高于 Soft limit, 高于的话 sleep 1ms, 因为这里认为 compaction 也就 25ms.
+//    这里是一个随便糊出来的值把，感觉我也不深究了
+// 2. 如果 mem 空间够，有 1 就跑路了
+// 3. 检查是否有 imm_ 和 L1 高于 hard limit, 这两种情况下都会 write stall.
+// 4. 如果 Mem 空间不够，在 (3) 过后切 mem
 Status DBImpl::MakeRoomForWrite(bool force) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
@@ -1428,13 +1451,16 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);
+      // Note: imm_ = mem_ 的时候，这个旧的 imm_ 是没有释放的.
+      // 且 `imm_->Unref()` 由 `mutex_` 保护。
+      // 等它都 Unref 了，才会释放内存。
       imm_ = mem_;
       has_imm_.store(true, std::memory_order_release);
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
       force = false;  // Do not force another compaction if have room
-      // 尝试 compact
-      // TODO(mwish): 为什么呢？
+      // 尝试 compact, 一旦有 imm, leveldb 都会尝试调度 Compaction.
+      // 之所以是尝试，是 LevelDB 只有单线程 Compaction, 所以可能有 background thread 在搞了。
       MaybeScheduleCompaction();
     }
   }

@@ -15,6 +15,9 @@ namespace {
 
 typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 
+/// TwoLevelIterator 表示两级的迭代器. 这里可能有两种使用方式：
+/// 1. 从单个 Block 中读取，这里的 index_iter 是 index block 的迭代器，BlockFunction 是读取 block 内容。见 `TableCache::NewIterator`.
+/// 2. 读某一层的数据。index_iter 是单层文件元信息的迭代器，BlockFunction 是 (1) 中的整合。见 `Version::NewConcatenatingIterator`.
 class TwoLevelIterator : public Iterator {
  public:
   TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,

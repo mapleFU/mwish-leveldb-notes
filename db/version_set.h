@@ -166,7 +166,10 @@ class Version {
   int compaction_level_;
 };
 
-// VersionSet 是版本控制的一个大入口，包含 options
+/// VersionSet 是版本控制的一个大入口，包含 options
+/// 这个类负责的内容比较奇怪:
+/// 1. 整体的 seq_id 之类的信息，获取一个 total order 的序列号。
+/// 2. 存有一个 `[Version]` 这样的结构，保存多个版本, 这个版本也有 seq_id 之类的。
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
@@ -212,6 +215,8 @@ class VersionSet {
   int64_t NumLevelBytes(int level) const;
 
   // Return the last sequence number.
+  // Note: 这个是整个 VersionSet 的运行时 last_sequence
+  // TODO(mwish): 这个是怎么恢复的?
   uint64_t LastSequence() const { return last_sequence_; }
 
   // Set the last sequence number to s.
@@ -297,9 +302,11 @@ class VersionSet {
   void AppendVersion(Version* v);
 
   Env* const env_;
+  // persistent.
   const std::string dbname_;
   const Options* const options_;
   TableCache* const table_cache_;
+  // DB 直接定义的，不是外部 pass 进来的
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
@@ -310,9 +317,15 @@ class VersionSet {
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
+
+  // Note: 为什么这里 version 采用 "双向链表"？因为中间可能某个版本没读被 GC 了，更早的版本还有 reference.
+  // TODO(mwish): 这个地方文件 GC 是怎么收集的
+
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 
+  // 因为这里的 compaction 有点类似 round robin
+  //
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
   std::string compact_pointer_[config::kNumLevels];
