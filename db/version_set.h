@@ -57,8 +57,11 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key);
 
+// 外部和文件读取，是从 Version 进行读取的。因为用户需要在某个具体的版本读取.
 class Version {
  public:
+  // 给采样和读取使用的。
+  //
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
   // REQUIRES: lock is not held
@@ -67,6 +70,8 @@ class Version {
     int seek_file_level;
   };
 
+  // TODO(mwish): why do we need this?
+  //
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -75,11 +80,15 @@ class Version {
   Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
              GetStats* stats);
 
+  // 通过 read 来更新一下内部的状态
+  //
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
   // REQUIRES: lock is held
   bool UpdateStats(const GetStats& stats);
 
+  // 采样读，在 iterator 的时候使用。
+  //
   // Record a sample of bytes read at the specified internal key.
   // Samples are taken approximately once every config::kReadBytesPeriod
   // bytes.  Returns true if a new compaction may need to be triggered.
@@ -91,6 +100,7 @@ class Version {
   void Ref();
   void Unref();
 
+  // 输出到 `inputs` 中
   void GetOverlappingInputs(
       int level,
       const InternalKey* begin,  // nullptr means before all keys
@@ -135,6 +145,7 @@ class Version {
 
   ~Version();
 
+  // 生成一个单层的迭代器，实现上是一个 TwoLevelIterator.
   Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
 
   // 这个需要变更一些统计信息，所以没有变成 static 方法.
@@ -147,7 +158,9 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
+  // 需要 vset 拿到 db 之类的信息
   VersionSet* vset_;  // VersionSet to which this Version belongs
+  // next_ 和 prev_ 是因为这个是一个侵入式结构，但是我觉得可以准备一个 Handle, 然后去 vset_ 里面把自己摘掉.
   Version* next_;     // Next version in linked list
   Version* prev_;     // Previous version in linked list
   int refs_;          // Number of live refs to this version
@@ -156,9 +169,12 @@ class Version {
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
   // Next file to compact based on seek stats.
+  // SeekCompaction 信息。
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
 
+  // 这个是 Size Compaction 用的信息。
+  //
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
@@ -229,10 +245,13 @@ class VersionSet {
   void MarkFileNumberUsed(uint64_t number);
 
   // Return the current log file number.
+  // 这个 current 含义有点怪，是 apply 上去的. 不代表 Next 暗示的状态.
   uint64_t LogNumber() const { return log_number_; }
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
+  //
+  // 这个表示正在 Compaction 的内容, 按说对应 Imm_...结果我一看
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 
   // Pick level and inputs for a new compaction.
@@ -259,6 +278,7 @@ class VersionSet {
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
     Version* v = current_;
+    // Size Compaction 和 Seek Compaction
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
   }
 
@@ -311,7 +331,9 @@ class VersionSet {
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t last_sequence_;
+  // log_number_ 在 Memtable Compaction 的时候才会被推高.
   uint64_t log_number_;
+  // DBImpl::Recover says it's useless.
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
@@ -319,7 +341,8 @@ class VersionSet {
   log::Writer* descriptor_log_;
 
   // Note: 为什么这里 version 采用 "双向链表"？因为中间可能某个版本没读被 GC 了，更早的版本还有 reference.
-  // TODO(mwish): 这个地方文件 GC 是怎么收集的
+  // Q: 这个地方文件 GC 是怎么收集的
+  // A: 在 RemoveObFiles 里面收集的
 
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_

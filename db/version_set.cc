@@ -78,12 +78,14 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
+        // TODO(mwish): 这个什么时候物理回收空间呢?
         delete f;
       }
     }
   }
 }
 
+// 二分, 似乎这个 files 要求是有序的, 所以肯定不是 L0 的文件.
 int FindFile(const InternalKeyComparator& icmp,
              const std::vector<FileMetaData*>& files, const Slice& key) {
   uint32_t left = 0;
@@ -118,6 +120,7 @@ static bool BeforeFile(const Comparator* ucmp, const Slice* user_key,
           ucmp->Compare(*user_key, f->smallest.user_key()) < 0);
 }
 
+// Version::OverlapInLevel 调用这个函数来实现。`disjoint_sorted_files` 表示是(true)否只有一个 sorted_run
 bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            bool disjoint_sorted_files,
                            const std::vector<FileMetaData*>& files,
@@ -209,7 +212,6 @@ class Version::LevelFileNumIterator : public Iterator {
   // Backing store for value().  Holds the file number and size.
   mutable char value_buf_[16];
 };
-
 
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const Slice& file_value) {
@@ -418,6 +420,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
   return state.found ? state.s : Status::NotFound(Slice());
 }
 
+// 更新 Stats, 并设置可能的 seek compaction.
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
   if (f != nullptr) {
@@ -480,6 +483,7 @@ void Version::Unref() {
   }
 }
 
+// 这个地方就是找到单层中的 overlap 是否存在。
 bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
   return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level],
@@ -602,9 +606,12 @@ class VersionSet::Builder {
     }
   };
 
-  typedef std::set<FileMetaData*, BySmallestKey> FileSet;
+  using FileSet = std::set<FileMetaData*, BySmallestKey>;
+  // 每个 Level Compaction 的变动的信息.
   struct LevelState {
+    // 删除掉的文件的 Id
     std::set<uint64_t> deleted_files;
+    // 文件元信息的集合，因为有所有权，所以保存 FileMetaData ptr.
     FileSet* added_files;
   };
 
@@ -682,6 +689,7 @@ class VersionSet::Builder {
       f->allowed_seeks = static_cast<int>((f->file_size / 16384U));
       if (f->allowed_seeks < 100) f->allowed_seeks = 100;
 
+      // 文件的 number 可能有 reuse, 需要处理
       levels_[level].deleted_files.erase(f->number);
       levels_[level].added_files->insert(f);
     }
@@ -776,6 +784,7 @@ VersionSet::~VersionSet() {
   delete descriptor_file_;
 }
 
+// 插入双向链表的尾部. (即链表头 dummy_version 之前)
 void VersionSet::AppendVersion(Version* v) {
   // Make "v" current
   assert(v->refs_ == 0);

@@ -17,6 +17,8 @@ class VersionSet;
 
 // LevelDB 有 Table 和 TableCache, 同时也有 BlockCache, 但是对上层而言，似乎提供是 FileMetaData.
 // 其中别的字段都很好理解，比较恶心的是 `allowed_seeks`
+//
+// refs 是 Version 对它的引用, Version 析构的时候, 会减少这个引用. 这部分内容是 replay 出来的。
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
@@ -28,6 +30,7 @@ struct FileMetaData {
   InternalKey largest;   // Largest internal key served by table
 };
 
+// 这个 edit 有日志文件 Id, 文件 id
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
@@ -43,15 +46,17 @@ class VersionEdit {
     has_log_number_ = true;
     log_number_ = num;
   }
-  // TODO(mwish): 为啥要有 PrevLogNumber
+
   void SetPrevLogNumber(uint64_t num) {
     has_prev_log_number_ = true;
     prev_log_number_ = num;
   }
+  // 空余的文件 id.
   void SetNextFile(uint64_t num) {
     has_next_file_number_ = true;
     next_file_number_ = num;
   }
+  // sequence_id
   void SetLastSequence(SequenceNumber seq) {
     has_last_sequence_ = true;
     last_sequence_ = seq;
@@ -93,16 +98,17 @@ class VersionEdit {
   std::string comparator_;
   // 写入的最后一条 LSN
   uint64_t log_number_;
+  // 上个 Version 的 log_number_.
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   SequenceNumber last_sequence_;
   bool has_comparator_;
   bool has_log_number_;
-  // TODO(mwish): 这些是啥
   bool has_prev_log_number_;
   bool has_next_file_number_;
   bool has_last_sequence_;
 
+  // (level, message)
   std::vector<std::pair<int, InternalKey>> compact_pointers_;
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;

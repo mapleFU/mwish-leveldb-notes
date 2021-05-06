@@ -219,6 +219,9 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
+// 在 db 初始化和文件打开的时候调用，清楚掉旧的文件。
+// 1. 日志文件: prev_log_number 是一个废弃的字段. log_number 会被内存 compaction 推高，大于它才会被回收.
+// TODO(mwish): 搞清楚这些文件的逻辑
 void DBImpl::RemoveObsoleteFiles() {
   mutex_.AssertHeld();
 
@@ -242,6 +245,10 @@ void DBImpl::RemoveObsoleteFiles() {
       bool keep = true;
       switch (type) {
         case kLogFile:
+          // 不能删除的 log file 理论上有:
+          // 1. imm_ 对应的内容
+          // 2. mem_ 对应的内容
+          // * 看了一眼只要满足 >= LogNumber 就行，操操操
           keep = ((number >= versions_->LogNumber()) ||
                   (number == versions_->PrevLogNumber()));
           break;
@@ -1453,13 +1460,18 @@ Status DBImpl::MakeRoomForWrite(bool force) {
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
       // mem --> imm_
+      //
+      // 需要额外注意的是，这里 release 了旧的日志文件，创建了新的日志文件。实际上是这样的, memory 被刷掉之后，写入就不需要日志了.
+      // Q: 日志文件是什么时候回收的?
+      // A: 打开 DB 和 Compact 完之后，会回收.
       assert(versions_->PrevLogNumber() == 0);
+      // 这个地方通过
       uint64_t new_log_number = versions_->NewFileNumber();
       WritableFile* lfile = nullptr;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
-        // 因为失败了，所以
+        // 因为失败了，所以把这个 id 吐回去。
         versions_->ReuseFileNumber(new_log_number);
         break;
       }
