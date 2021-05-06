@@ -80,6 +80,9 @@ class VersionEdit {
   }
 
   // deleted_files_ 是不能 remove 的，所以仍然需要记录一下。
+  // Note: deleted_files_ 只是用来 Apply 的时候把对应内容删掉，和 debug 的时候使用.
+  // 本身不会删除磁盘上的文件.
+  //
   // Delete the specified "file" from the specified "level".
   void RemoveFile(int level, uint64_t file) {
     deleted_files_.insert(std::make_pair(level, file));

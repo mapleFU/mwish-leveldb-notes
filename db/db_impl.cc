@@ -221,7 +221,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 
 // 在 db 初始化和文件打开的时候调用，清楚掉旧的文件。
 // 1. 日志文件: prev_log_number 是一个废弃的字段. log_number 会被内存 compaction 推高，大于它才会被回收.
-// TODO(mwish): 搞清楚这些文件的逻辑
+// 2. SST(.sst, .ldb) 文件: 不是 pending_outputs_ 或者不再输出里面就会删掉.
 void DBImpl::RemoveObsoleteFiles() {
   mutex_.AssertHeld();
 
@@ -232,6 +232,10 @@ void DBImpl::RemoveObsoleteFiles() {
   }
 
   // Make a set of all of the live files
+
+  // 获取两个部分:
+  // 1. pending_outputs_, 正在输出的内容
+  // 2. versions 里面存的东西
   std::set<uint64_t> live = pending_outputs_;
   versions_->AddLiveFiles(&live);
 
@@ -508,9 +512,12 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
+
+  // 新的 L0 文件
   FileMetaData meta;
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
+
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
       (unsigned long long)meta.number);
@@ -549,7 +556,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
 }
 
 // 这里对应的是 Major Compaction
-// 1. 
+// 1. 把 version_->current() 当成 base, Ref() 调用它. 不过我一下子感觉这个地方, 因为还被 LogAndApply, 是不是不 Ref() 也行...
+// 2. 这个地方，Compaction 的时候，memtable 所有内容(包括重复的 del/update) 都会被插入 Level0 file. 因为全都来自 MemTable Iterator.
 void DBImpl::CompactMemTable() {
   mutex_.AssertHeld();
   assert(imm_ != nullptr);

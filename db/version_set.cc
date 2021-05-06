@@ -78,7 +78,7 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
-        // TODO(mwish): 这个什么时候物理回收空间呢?
+        // `DBImpl::RemoveObsoleteFiles()` 物理回收空间呢
         delete f;
       }
     }
@@ -1169,6 +1169,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   return result;
 }
 
+// 把 versions 里面所有的内容丢进去
 void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
   for (Version* v = dummy_versions_.next_; v != &dummy_versions_;
        v = v->next_) {

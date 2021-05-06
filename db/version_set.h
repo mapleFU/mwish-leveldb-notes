@@ -232,7 +232,9 @@ class VersionSet {
 
   // Return the last sequence number.
   // Note: 这个是整个 VersionSet 的运行时 last_sequence
-  // TODO(mwish): 这个是怎么恢复的?
+  //
+  // Recover 的时候，这里会设置 max_sequence;
+  // `::Write` 写入的时候，会设置写入之后的 Sequence
   uint64_t LastSequence() const { return last_sequence_; }
 
   // Set the last sequence number to s.
@@ -251,7 +253,7 @@ class VersionSet {
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   //
-  // 这个表示正在 Compaction 的内容, 按说对应 Imm_...结果我一看
+  // 这个表示正在 Compaction 的内容, 按说对应 Imm_...结果我一看, 整个废弃了.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 
   // Pick level and inputs for a new compaction.
@@ -347,7 +349,7 @@ class VersionSet {
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 
-  // 因为这里的 compaction 有点类似 round robin
+  // 因为这里的 compaction 有点类似 round robin, 这次 Compaction 了一段范围，下次 compaction 起始地放在下一段.
   //
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
