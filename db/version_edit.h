@@ -19,6 +19,7 @@ class VersionSet;
 // 其中别的字段都很好理解，比较恶心的是 `allowed_seeks`
 //
 // refs 是 Version 对它的引用, Version 析构的时候, 会减少这个引用. 这部分内容是 replay 出来的。
+// TODO(mwish): 搞清楚 FileMetaData 生命周期
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
@@ -42,6 +43,10 @@ class VersionEdit {
     has_comparator_ = true;
     comparator_ = name.ToString();
   }
+
+  // 只有 MemCompaction 的时候，会设置 log number, 推高水位.
+  // 理论上正常应该最多也只要 recover 两个 log 文件.
+  // 因为 CURRENT 写成功后，切 mem 的时候会 Set, 然后这中间最多两个。
   void SetLogNumber(uint64_t num) {
     has_log_number_ = true;
     log_number_ = num;
@@ -57,10 +62,13 @@ class VersionEdit {
     next_file_number_ = num;
   }
   // sequence_id
+  // 在 `VersionSet::LogAndApply` 的时候, VersionEdit 会被设置 last_sequence.
   void SetLastSequence(SequenceNumber seq) {
     has_last_sequence_ = true;
     last_sequence_ = seq;
   }
+
+  // 在 Compact 完成后, 对于 Size Compaction, 需要正确设置文件变动后的 Compaction Pointer.
   void SetCompactPointer(int level, const InternalKey& key) {
     compact_pointers_.push_back(std::make_pair(level, key));
   }
@@ -98,8 +106,9 @@ class VersionEdit {
 
   typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
 
+  // 这个是用户自定义的 comparator, 需要持久化
   std::string comparator_;
-  // 写入的最后一条 LSN
+  // 写入的最后一条 LSN. 在 MemTable Compaction 的时候推高.
   uint64_t log_number_;
   // 上个 Version 的 log_number_.
   uint64_t prev_log_number_;

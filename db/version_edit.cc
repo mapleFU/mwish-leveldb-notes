@@ -38,6 +38,7 @@ void VersionEdit::Clear() {
   new_files_.clear();
 }
 
+// VersionEdit 会被编码到单条记录, 然后 append 到 MANIFEST 文件中
 void VersionEdit::EncodeTo(std::string* dst) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);

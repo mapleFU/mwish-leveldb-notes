@@ -244,6 +244,7 @@ class VersionSet {
   }
 
   // Mark the specified file number as used.
+  // 实际上实现的时候就是把文件的 Next id 给推高
   void MarkFileNumberUsed(uint64_t number);
 
   // Return the current log file number.
@@ -324,8 +325,9 @@ class VersionSet {
   void AppendVersion(Version* v);
 
   Env* const env_;
-  // persistent.
+  // persistent. 而且是写死的
   const std::string dbname_;
+  // 唯一的 Options, 打开的时候有一些内容不匹配的话会报错。
   const Options* const options_;
   TableCache* const table_cache_;
   // DB 直接定义的，不是外部 pass 进来的
@@ -338,6 +340,8 @@ class VersionSet {
   // DBImpl::Recover says it's useless.
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
+  // Note: 这个地方是现有的 MANIFEST 文件
+  // 这两个文件是 lazily open, 只有第一次写入的时候才会创建
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;

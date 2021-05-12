@@ -91,6 +91,8 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
+
+/// 传进来一个 raw_option. 传出一个"无害的" Options.
 Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const InternalFilterPolicy* ipolicy,
@@ -127,14 +129,22 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     : env_(raw_options.env),
       internal_comparator_(raw_options.comparator),
       internal_filter_policy_(raw_options.filter_policy),
+      // 没有对应内容, 就使用默认的对象(这几个地方参数都是 const 的)
       options_(SanitizeOptions(dbname, &internal_comparator_,
                                &internal_filter_policy_, raw_options)),
+      // 配置上的 info_log
       owns_info_log_(options_.info_log != raw_options.info_log),
+      // 是否有 BlockCache( TableCache 是一定有的 )
       owns_cache_(options_.block_cache != raw_options.block_cache),
       dbname_(dbname),
+      // TableCache 是必定存在的, 这个大小设置的很大，相当于 max_open_size
       table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
+      // lock 是文件锁, 会在 Open 函数内部获取。
       db_lock_(nullptr),
+      // 主动关闭
+      // TODO(mwish): 主动关闭的流程是怎么样的?
       shutting_down_(false),
+      // 全局的 signal, 感觉很多东西会睡在这上面，到时候一个 notify all, 嚯嚯
       background_work_finished_signal_(&mutex_),
       mem_(nullptr),
       imm_(nullptr),
@@ -146,9 +156,15 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       tmp_batch_(new WriteBatch),
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
+      // 穿件 VersionSet, 但是没有初始化
       versions_(new VersionSet(dbname_, &options_, table_cache_,
                                &internal_comparator_)) {}
 
+// 关闭 db 的流程
+// 1. 设置 `shutting_down_`, 然后 Wait 来 graceful shutdown
+// 2. unlock file
+// 3. release 掉所有内存操作
+// 4. 清理所有资源.
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
   mutex_.Lock();
@@ -178,6 +194,7 @@ DBImpl::~DBImpl() {
   }
 }
 
+// 创建一个 manifest 文件，加入一条初始 manifest 记录，然后更新 current.
 Status DBImpl::NewDB() {
   VersionEdit new_db;
   new_db.SetComparatorName(user_comparator()->Name());
@@ -187,6 +204,8 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   WritableFile* file;
+
+  // 不过这个有点牛逼，上来没有留 content, 直接写一个 manifest 了...
   Status s = env_->NewWritableFile(manifest, &file);
   if (!s.ok()) {
     return s;
@@ -195,8 +214,12 @@ Status DBImpl::NewDB() {
     log::Writer log(file);
     std::string record;
     new_db.EncodeTo(&record);
+    // Q: why not calling sync here. 这里还没有写 CURRENT, 其实无所谓？
+    // delete file 的时候不保证 sync，SetCurrentFile 这个不是GG？
     s = log.AddRecord(record);
     if (s.ok()) {
+      // Env::Close 的时候会 flush buffer, 但是不会 fsync.
+      // TODO(mwish): 为啥啊啊啊啊(https://stackoverflow.com/questions/15348431/does-close-call-fsync-on-linux)
       s = file->Close();
     }
   }
@@ -297,6 +320,10 @@ void DBImpl::RemoveObsoleteFiles() {
   mutex_.Lock();
 }
 
+// 1. 尝试拿到目录
+// 2. 尝试创建 lock file (dbname_), 也就是在这个目录下创建一个 `LOCK`, 然后用 `fcntl` 去给它上锁.
+// 3. 尝试找到 `CURRENT`, 这是对 manifest 的索引。
+// 3.1 没有找到的话，调用 `NewDB()`
 Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   mutex_.AssertHeld();
 
@@ -305,11 +332,13 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   // may already exist from a previous failed creation attempt.
   env_->CreateDir(dbname_);
   assert(db_lock_ == nullptr);
+  // 创建一个独立的 `LOCK` 文件。
   Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
   if (!s.ok()) {
     return s;
   }
 
+  // 找到 CURRENT, 这是一个文件的索引
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
       s = NewDB();
@@ -341,6 +370,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   // attention to it in case we are recovering a database
   // produced by an older version of leveldb.
   const uint64_t min_log = versions_->LogNumber();
+  // 废弃...
   const uint64_t prev_log = versions_->PrevLogNumber();
   std::vector<std::string> filenames;
   s = env_->GetChildren(dbname_, &filenames);
@@ -352,6 +382,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   uint64_t number;
   FileType type;
   std::vector<uint64_t> logs;
+  // 找到 edit 里面不存在的
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       expected.erase(number);
@@ -1605,6 +1636,11 @@ Status DB::Delete(const WriteOptions& opt, const Slice& key) {
 
 DB::~DB() = default;
 
+/// DB::Open 打开一个 DBImpl, 并赋值给 dbptr
+// 这里它:
+// 1. 创建一个 DBImpl ( 见它构造函数的注释 ).
+// 2. 上一个 mutex_ (其实我感觉这个地方上不上也无所谓吧= =应该不会有同步问题)
+// 3. 调用 Recover, 尝试读取 CURRENT 和 manifest.
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
 

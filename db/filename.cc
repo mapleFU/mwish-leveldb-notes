@@ -35,11 +35,13 @@ std::string TableFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, "ldb");
 }
 
+// 目前已经不会主动创建 .sst 文件，但是为了兼容性还是要支持 SST
 std::string SSTTableFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "sst");
 }
 
+// Description file 就是 MANIFEST 文件
 std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   char buf[100];
@@ -120,6 +122,7 @@ bool ParseFileName(const std::string& filename, uint64_t* number,
   return true;
 }
 
+// 创建一个临时文件，然后丢到 current 里面.
 Status SetCurrentFile(Env* env, const std::string& dbname,
                       uint64_t descriptor_number) {
   // Remove leading "dbname/" and add newline to manifest file name

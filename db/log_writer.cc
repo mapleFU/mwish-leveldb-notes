@@ -32,6 +32,7 @@ Writer::Writer(WritableFile* dest, uint64_t dest_length)
 Writer::~Writer() = default;
 
 // AddRecord 最终日志添加的单位还是 batch
+// 这个 AddRecord 如果成功, 语义上是会 Flush 的.(但是不会 sync)
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
   size_t left = slice.size();

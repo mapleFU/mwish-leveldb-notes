@@ -26,6 +26,9 @@ class Version;
 class VersionEdit;
 class VersionSet;
 
+/// DBImpl 是 DB 内部实现的逻辑, 它的 public 接口除了 notes 里面写的，还包括:
+/// 1. GetProperty, 拿到对应的 prop.
+/// 2. GetApproximateSizes, 估计现有的大小.
 class DBImpl : public DB {
  public:
   DBImpl(const Options& options, const std::string& dbname);
@@ -121,6 +124,8 @@ class DBImpl : public DB {
   // Delete any unneeded files and stale in-memory entries.
   void RemoveObsoleteFiles() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
+  /*-- 和 Compaction 状态有关的函数 --*/
+
   // Compact the in-memory write buffer to disk.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   // Errors are recorded in bg_error_.
@@ -143,6 +148,7 @@ class DBImpl : public DB {
   void MaybeScheduleCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   static void BGWork(void* db);
   void BackgroundCall();
+
   void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -157,6 +163,8 @@ class DBImpl : public DB {
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+
+  /*-- Ending: 和 Compaction 状态有关的函数 --*/
 
   // Constant after construction
   Env* const env_;

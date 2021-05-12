@@ -99,6 +99,11 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
 
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
+//
+// InternalKey 需要比较:
+// 1. user_key
+// 2. type
+// 3. 操作 id
 class InternalKeyComparator : public Comparator {
  private:
   const Comparator* user_comparator_;

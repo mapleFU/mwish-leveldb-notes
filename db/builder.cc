@@ -60,7 +60,8 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     delete file;
     file = nullptr;
 
-    // 这个地方也相当于缓存 rehot 了，验证一下可以不可以用.
+    // <del>这个地方也相当于缓存预热了</del>，验证一下可以不可以用.
+    // 实际上和缓存预热不一定有关，因为这里只涉及了 TableCache, BlockCache 没有任何修改。
     if (s.ok()) {
       // Verify that the table is usable
       Iterator* it = table_cache->NewIterator(ReadOptions(), meta->number,

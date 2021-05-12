@@ -934,6 +934,8 @@ Status VersionSet::Recover(bool* save_manifest) {
                        0 /*initial_offset*/);
     Slice record;
     std::string scratch;
+    // 如果有问题, 这里会 report corruption.
+    // 没有 corrupt 的话，这里能正常读到 edit 里面，然后轮流 apply.
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       VersionEdit edit;
       s = edit.DecodeFrom(record);
@@ -987,6 +989,7 @@ Status VersionSet::Recover(bool* save_manifest) {
       prev_log_number = 0;
     }
 
+    // 推高文件 id 的水位.
     MarkFileNumberUsed(prev_log_number);
     MarkFileNumberUsed(log_number);
   }
