@@ -140,6 +140,12 @@ class MergingIterator : public Iterator {
   // For now we use a simple array since we expect a very small number
   // of children in leveldb.
   const Comparator* comparator_;
+
+  /**
+   * 虽然 children_ 和 current_ 都是 IteratorWrapper* 类型。
+   * 但是 children_ 是一个包含所有成员的数组，`current_` 是现在指向的最小成员
+   */
+  //
   IteratorWrapper* children_;
   int n_;
   IteratorWrapper* current_;

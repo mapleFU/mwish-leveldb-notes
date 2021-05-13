@@ -475,6 +475,9 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
     WriteBatchInternal::SetContents(&batch, record);
 
     if (mem == nullptr) {
+      // memtable 刚创建出来的时候 ref == 0.
+      // 这里主动 ref 一下
+      // 不过我真心觉得，这个地方不如交给侵入式指针。
       mem = new MemTable(internal_comparator_);
       mem->Ref();
     }
@@ -539,6 +542,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   return status;
 }
 
+// 简单构建一个新的
 Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
                                 Version* base) {
   mutex_.AssertHeld();
@@ -549,6 +553,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
 
+  // 简单用 MemIterator 就行, 这里会吧所有记录，包括重复的同一个 key 的记录都写进去.
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
       (unsigned long long)meta.number);
@@ -563,6 +568,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s",
       (unsigned long long)meta.number, (unsigned long long)meta.file_size,
       s.ToString().c_str());
+  // 这个地方我真的觉得尼玛离谱，外面传的 ptr 要里面来 free.
   delete iter;
   pending_outputs_.erase(meta.number);
 
@@ -575,6 +581,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     if (base != nullptr) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
+    // Memtable Compaction 无论如何只会涉及 at most 一个文件.
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
                   meta.largest);
   }
@@ -582,6 +589,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
+  // 添加统计信息
   stats_[level].Add(stats);
   return s;
 }
@@ -610,11 +618,15 @@ void DBImpl::CompactMemTable() {
 
   // Replace immutable memtable with the generated Table
   if (s.ok()) {
+    // prev log number 是废弃的，瞎几把填就行.
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+
+    // 把 edit 的信息 apply 过去
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
+  // purge.
   if (s.ok()) {
     // Commit to the new state
     imm_->Unref();
@@ -1210,7 +1222,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
-  // 为什么是 current? 不从旧的读吗？
+  // TODO(mwish): 为什么是 current? 不从旧的读吗？
   Version* current = versions_->current();
   mem->Ref();
   if (imm != nullptr) imm->Ref();

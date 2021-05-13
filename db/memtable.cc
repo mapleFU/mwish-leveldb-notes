@@ -44,7 +44,9 @@ static const char* EncodeKey(std::string* scratch, const Slice& target) {
   return scratch->data();
 }
 
-// 这个 Iterator 对 skiplist 的 iterator 包了一层。SKipList 的 key 是带版本的 key, 这里显然不是。
+// 这个 Iterator 对 skiplist 的 iterator 包了一层。SKipList 的 key 是:
+// `<sequence, type, key 长度, key 内容>` `<value 长度, value 内容> `
+// 这里拆分除了 key 和 value, key 提供 InternalKey, value 提供 value.
 // 此外，这里的 key/value 还把长度这部分剥离了出来。
 class MemTableIterator : public Iterator {
  public:

@@ -75,6 +75,8 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
   return p;
 }
 
+// Block::Iter 是构建在单个 `data block` 上的，而不是 SST 上的.
+// SST 会用 TwoLevelIterator 构建多个 Block Reader.
 class Block::Iter : public Iterator {
  private:
   const Comparator* const comparator_;

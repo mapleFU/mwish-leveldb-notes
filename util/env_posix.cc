@@ -145,7 +145,7 @@ class PosixSequentialFile final : public SequentialFile {
 // Instances of this class are thread-safe, as required by the RandomAccessFile
 // API. Instances are immutable and Read() only calls thread-safe library
 // functions.
-class PosixRandomAccessFile final : public RandomAccessFile {
+class PosixRandomAccessFile final : public RandomAxccessFile {
  public:
   // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
   // instance, and will be used to determine if .

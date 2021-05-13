@@ -490,21 +490,28 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                                smallest_user_key, largest_user_key);
 }
 
+// 这个是要从 version 里面找
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
   int level = 0;
+  // 如果在 L0 没有重叠的 sst 文件, 那么可考虑 pushdown
   if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
     // Push to next level if there is no overlap in next level,
     // and the #bytes overlapping in the level after that are limited.
     InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
     std::vector<FileMetaData*> overlaps;
+    // L0 的 MaxMemCompactLevel 是 2, 实际上就是说尝试推到1层.
+    // 这里还有个限定要求是:
+    // 1. 与目标层没有 overlap
+    // 2. 目标 + 1 层重叠不超过 10 个 filesize.
     while (level < config::kMaxMemCompactLevel) {
       if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
         break;
       }
       if (level + 2 < config::kNumLevels) {
         // Check that file does not overlap too many grandparent bytes.
+        // 这个只是计算文件/文件大小，要求不大于 10 个 filesize.
         GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
         const int64_t sum = TotalFileSize(overlaps);
         if (sum > MaxGrandParentOverlapBytes(vset_->options_)) {
@@ -803,6 +810,8 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
+  // 处理 log number
+  // Note: 目前只有 major compaction 是会推高 log number 的.
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
     assert(edit->log_number_ < next_file_number_);
@@ -814,6 +823,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     edit->SetPrevLogNumber(prev_log_number_);
   }
 
+  // next_file_number 和 last_seq 都是全局信息.
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
 
@@ -1054,6 +1064,8 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   }
 }
 
+// Finalize 的时候, 来给它对应一个 score.
+// 主要是找到最大的 score, 然后和上个版本最大的对比.
 void VersionSet::Finalize(Version* v) {
   // Precomputed best level for next compaction
   int best_level = -1;

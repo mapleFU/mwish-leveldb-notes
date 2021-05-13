@@ -17,6 +17,8 @@ namespace leveldb {
 // 具体写入的逻辑。
 // MemTable 构建的时候，meta 是新的 L0, iter 来自 Memtable::Table::Iterator.
 // 不过看了下，这个逻辑真的不难，就是很简单的从迭代器构建= =
+//
+// build 失败的话, 要保证不留这个文件。
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
   Status s;
