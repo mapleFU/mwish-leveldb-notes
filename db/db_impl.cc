@@ -218,8 +218,11 @@ Status DBImpl::NewDB() {
     // delete file 的时候不保证 sync，SetCurrentFile 这个不是GG？
     s = log.AddRecord(record);
     if (s.ok()) {
-      // Env::Close 的时候会 flush buffer, 但是不会 fsync.
+      // Env::Close 的时候会 flush buffer, 但是会在这里 fsync.
       // TODO(mwish): 为啥啊啊啊啊(https://stackoverflow.com/questions/15348431/does-close-call-fsync-on-linux)
+      s = file->Sync();
+    }
+    if (s.ok()) {
       s = file->Close();
     }
   }
@@ -341,6 +344,8 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   // 找到 CURRENT, 这是一个文件的索引
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
+      Log(options_.info_log, "Creating DB %s since it was missing.",
+          dbname_.c_str());
       s = NewDB();
       if (!s.ok()) {
         return s;
