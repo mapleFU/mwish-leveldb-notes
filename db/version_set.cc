@@ -51,6 +51,7 @@ static double MaxBytesForLevel(const Options* options, int level) {
   return result;
 }
 
+// 这个是单个 Level 的最大文件大小。
 static uint64_t MaxFileSizeForLevel(const Options* options, int level) {
   // We could vary per level to reduce number of files?
   return TargetFileSize(options);
@@ -1256,11 +1257,14 @@ void VersionSet::GetRange(const std::vector<FileMetaData*>& inputs,
 void VersionSet::GetRange2(const std::vector<FileMetaData*>& inputs1,
                            const std::vector<FileMetaData*>& inputs2,
                            InternalKey* smallest, InternalKey* largest) {
+  // 这个就是简单插入这里的逻辑，然后 GetRange 不一定是有序的
+  // 应该本身 L0 也会走到这里
   std::vector<FileMetaData*> all = inputs1;
   all.insert(all.end(), inputs2.begin(), inputs2.end());
   GetRange(all, smallest, largest);
 }
 
+// 给 Compaction 提供 Iterator, 这里不需要 fill_cache.
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   ReadOptions options;
   options.verify_checksums = options_->paranoid_checks;
@@ -1417,11 +1421,12 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
 
   bool continue_searching = true;
   while (continue_searching) {
+    // largest key 可能会有下一个相同的 user_key
     FileMetaData* smallest_boundary_file =
         FindSmallestBoundaryFile(icmp, level_files, largest_key);
 
     // If a boundary file was found advance largest_key, otherwise we're done.
-    if (smallest_boundary_file != NULL) {
+    if (smallest_boundary_file != nullptr) {
       compaction_files->push_back(smallest_boundary_file);
       largest_key = smallest_boundary_file->largest;
     } else {
@@ -1430,29 +1435,37 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
   }
 }
 
+/// 这个函数的功能是，设置了一层 Input 和 InputVersion 还有 level 的时候.
 void VersionSet::SetupOtherInputs(Compaction* c) {
   const int level = c->level();
   InternalKey smallest, largest;
 
+  // 拿到输入 SST 的文件们，这个函数在: https://github.com/google/leveldb/commit/20fb601aa9f68ff0aa147df22524b7d01758552b
+  // 这个 pr 被加入.
   AddBoundaryInputs(icmp_, current_->files_[level], &c->inputs_[0]);
+  // 拿到这些文件的 min max
   GetRange(c->inputs_[0], &smallest, &largest);
 
+  // 在下一层用这个 Min max 拿到重叠区域, 放在 c->inputs_[1]
   current_->GetOverlappingInputs(level + 1, &smallest, &largest,
                                  &c->inputs_[1]);
 
   // Get entire range covered by compaction
   InternalKey all_start, all_limit;
+  // 拿到包含下层范围的 Min max, 这个是目前涉及的所有的文件的 Min, Max
   GetRange2(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
 
   // See if we can grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up.
   if (!c->inputs_[1].empty()) {
+    // 在本层做 expand
     std::vector<FileMetaData*> expanded0;
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0);
     AddBoundaryInputs(icmp_, current_->files_[level], &expanded0);
     const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
     const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
     const int64_t expanded0_size = TotalFileSize(expanded0);
+    // 文件大小没有超过限制的话，可以加入。
     if (expanded0.size() > c->inputs_[0].size() &&
         inputs1_size + expanded0_size <
             ExpandedCompactionByteSizeLimit(options_)) {
@@ -1491,10 +1504,13 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   c->edit_.SetCompactPointer(level, largest);
 }
 
+// 指定某 level 和 begin, end, 来做 Compaction.
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin,
                                      const InternalKey* end) {
   std::vector<FileMetaData*> inputs;
+  // 还是走 current_ 啊...
   current_->GetOverlappingInputs(level, begin, end, &inputs);
+  // 没有 Overlap, 不 Compaction
   if (inputs.empty()) {
     return nullptr;
   }
@@ -1503,7 +1519,11 @@ Compaction* VersionSet::CompactRange(int level, const InternalKey* begin,
   // But we cannot do this for level-0 since level-0 files can overlap
   // and we must not pick one file and drop another older file if the
   // two files overlap.
+  //
+  // Note: 这里指定了每层的 max_size，超过就 break.
+  // 因为这里的策略是 leveled compaction, 所以每层会尝试大致取一个文件/一个文件的大小.
   if (level > 0) {
+    // 选单层单个文件的大小。
     const uint64_t limit = MaxFileSizeForLevel(options_, level);
     uint64_t total = 0;
     for (size_t i = 0; i < inputs.size(); i++) {
@@ -1542,6 +1562,7 @@ Compaction::~Compaction() {
   }
 }
 
+// 一些特殊情况下，计算出可以 Trivial Move
 bool Compaction::IsTrivialMove() const {
   const VersionSet* vset = input_version_->vset_;
   // Avoid a move if there is lots of overlapping grandparent data.
@@ -1560,6 +1581,7 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
   }
 }
 
+// 这个条件也太几把苛刻了吧，感觉要求太高了...为什么不能去下层直接查一把.
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();

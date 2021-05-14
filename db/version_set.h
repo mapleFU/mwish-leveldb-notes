@@ -426,6 +426,8 @@ class Compaction {
 
   // State for implementing IsBaseLevelForKey
 
+  // 这个状态是递增的，这么牛逼的东西怎么搞出来的...
+
   // level_ptrs_ holds indices into input_version_->levels_: our state
   // is that we are positioned at one of the file ranges for each
   // higher level than the ones involved in this compaction (i.e. for

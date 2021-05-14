@@ -219,7 +219,7 @@ Status DBImpl::NewDB() {
     s = log.AddRecord(record);
     if (s.ok()) {
       // Env::Close 的时候会 flush buffer, 但是会在这里 fsync.
-      // TODO(mwish): 为啥啊啊啊啊(https://stackoverflow.com/questions/15348431/does-close-call-fsync-on-linux)
+      //为啥啊啊啊啊(https://stackoverflow.com/questions/15348431/does-close-call-fsync-on-linux)
       s = file->Sync();
     }
     if (s.ok()) {
@@ -650,14 +650,17 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   {
     MutexLock l(&mutex_);
     Version* base = versions_->current();
+    // 从 1 层开始，如果这层有 overlap, 推高 max_level_with_files.
     for (int level = 1; level < config::kNumLevels; level++) {
       if (base->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
       }
     }
   }
+  // 尝试 Compaction 掉 Imm, 这个地方实现很简单，就是等待 imm_ 被 Compact 掉。
   TEST_CompactMemTable();  // TODO(sanjay): Skip if memtable does not overlap
   for (int level = 0; level < max_level_with_files; level++) {
+    // [0, Level), 进行 compact range.
     TEST_CompactRange(level, begin, end);
   }
 }
@@ -784,11 +787,14 @@ void DBImpl::BackgroundCompaction() {
     return;
   }
 
+  // 以下的 Compaction 都不会涉及 memtable.
+
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
   InternalKey manual_end;
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
+    // 挑选 CompactRange,
     c = versions_->CompactRange(m->level, m->begin, m->end);
     m->done = (c == nullptr);
     if (c != nullptr) {
@@ -827,6 +833,7 @@ void DBImpl::BackgroundCompaction() {
         status.ToString().c_str(), versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
+    // 具体执行 Compaction
     status = DoCompactionWork(compact);
     if (!status.ok()) {
       RecordBackgroundError(status);
@@ -981,9 +988,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
   assert(compact->outfile == nullptr);
+
   if (snapshots_.empty()) {
+    // 没有任何 snapshot, 随便删掉 key
     compact->smallest_snapshot = versions_->LastSequence();
   } else {
+    // 否则按照最老的 snapshot 选
     compact->smallest_snapshot = snapshots_.oldest()->sequence_number();
   }
 
@@ -1038,12 +1048,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         last_sequence_for_key = kMaxSequenceNumber;
       }
 
+      // key 保留情况处理.
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;  // (A)
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+        // Note(mwish): `IsBaseLevelForKey` 这个函数也太讨巧了，感觉不太好用...
+        // 终于知道为什么要 Seek Compaction 了.
+        //
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
@@ -1068,6 +1082,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     if (!drop) {
       // Open output file if necessary
+      // 这个地方是惰性开启的。
       if (compact->builder == nullptr) {
         status = OpenCompactionOutputFile(compact);
         if (!status.ok()) {
