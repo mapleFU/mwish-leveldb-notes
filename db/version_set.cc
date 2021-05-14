@@ -1603,6 +1603,7 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   return true;
 }
 
+// ShouldStopBefore 很鸡贼的 check 了 grandparent 的逻辑，防止 overlap 过多.
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   const VersionSet* vset = input_version_->vset_;
   // Scan to find earliest grandparent file that contains key.
