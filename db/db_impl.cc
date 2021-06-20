@@ -247,7 +247,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 
 // 在 db 初始化和文件打开的时候调用，清楚掉旧的文件。
 // 1. 日志文件: prev_log_number 是一个废弃的字段. log_number 会被内存 compaction 推高，大于它才会被回收.
-// 2. SST(.sst, .ldb) 文件: 不是 pending_outputs_ 或者不再输出里面就会删掉.
+// 2. SST(.sst, .ldb) 文件: 不是 pending_outputs_ 且不存在于 VersionSet 所有版本引用的文件中的文件。
 void DBImpl::RemoveObsoleteFiles() {
   mutex_.AssertHeld();
 
@@ -558,7 +558,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
 
-  // 简单用 MemIterator 就行, 这里会吧所有记录，包括重复的同一个 key 的记录都写进去.
+  // 简单用 MemIterator 就行, 这里会把所有记录，包括重复的同一个 key 的记录都写进去.
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started",
       (unsigned long long)meta.number);
@@ -613,6 +613,8 @@ void DBImpl::CompactMemTable() {
   Version* base = versions_->current();
 
   // 写 L0 SST
+
+  // TODO(mwish): 一下没看出 base 有啥用
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
   base->Unref();
@@ -776,7 +778,7 @@ void DBImpl::BackgroundCall() {
 // Compaction 有下面几种类型:
 // 1. CompactMemTable: 优先级最高
 // 2. ManualCompaction: 优先级次高
-// 3. Size Compaction: 优先级比 SeekCompaction
+// 3. Size Compaction: 优先级比 SeekCompaction 高
 // 4. SeekCompaction
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
@@ -989,6 +991,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(compact->builder == nullptr);
   assert(compact->outfile == nullptr);
 
+  // 确定可以删除的 seq id
   if (snapshots_.empty()) {
     // 没有任何 snapshot, 随便删掉 key
     compact->smallest_snapshot = versions_->LastSequence();
@@ -1032,6 +1035,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     // Handle key/value, add to state, etc.
+    //
+    // 每次保留一个 current_user_key. 遇到第二次
     bool drop = false;
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
@@ -1535,6 +1540,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // 需要额外注意的是，这里 release 了旧的日志文件，创建了新的日志文件。实际上是这样的, memory 被刷掉之后，写入就不需要日志了.
       // Q: 日志文件是什么时候回收的?
       // A: 打开 DB 和 Compact 完之后，会回收.
+      //
+      // 走到这里说明 imm_ is nullptr, 文件可能大于 soft_limit, 一定小于 hard limit.
+      // 同时, mem_ 内存是不够的，需要切新的文件.
       assert(versions_->PrevLogNumber() == 0);
       // 这个地方通过
       uint64_t new_log_number = versions_->NewFileNumber();
