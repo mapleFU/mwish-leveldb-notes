@@ -1063,6 +1063,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // Note(mwish): `IsBaseLevelForKey` 这个函数也太讨巧了，感觉不太好用...
         // 终于知道为什么要 Seek Compaction 了.
         //
+        // 这里有一个问题，是 `ikey.sequence == compact->smallest_snapshot` 的时候.
+        // 这个时候，这一层数据可以被 GC 掉，因为条件都满足的时候，如果正好相等，读到的也必须是 `deleted`
+        // 所以这个时候删除是安全的.
+        //
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
