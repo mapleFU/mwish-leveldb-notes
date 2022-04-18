@@ -828,6 +828,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   }
 
   // next_file_number 和 last_seq 都是全局信息.
+  // next_file_number 必须持久化, 因为影响下次选择的文件 ID.
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
 
@@ -843,6 +844,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   // a temporary file that contains a snapshot of the current version.
   std::string new_manifest_file;
   Status s;
+  // 需要创建一个新的 manifest_file, 一个 db 刚启动的时候, 才会 load 起来.
   if (descriptor_log_ == nullptr) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).

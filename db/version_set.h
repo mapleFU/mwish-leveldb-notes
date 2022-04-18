@@ -57,7 +57,8 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key);
 
-// 外部和文件读取，是从 Version 进行读取的。因为用户需要在某个具体的版本读取.
+//! 提供一致的 SST 视图.
+//! 外部和文件读取，是从 Version 进行读取的。因为用户需要在某个具体的版本读取.
 class Version {
  public:
   // 给采样和读取使用的。
@@ -100,7 +101,11 @@ class Version {
   void Ref();
   void Unref();
 
-  // 输出到 `inputs` 中
+  /**
+   * Compaction/Flush/读取使用的函数.
+   */
+
+  //! 输出到 `inputs` 中, 可能是上游有查询, 也可能是给 Compaction 使用.
   void GetOverlappingInputs(
       int level,
       const InternalKey* begin,  // nullptr means before all keys
@@ -111,11 +116,15 @@ class Version {
   // some part of [*smallest_user_key,*largest_user_key].
   // smallest_user_key==nullptr represents a key smaller than all the DB's keys.
   // largest_user_key==nullptr represents a key largest than all the DB's keys.
+  //
+  // 给 Major Compaction 使用.
   bool OverlapInLevel(int level, const Slice* smallest_user_key,
                       const Slice* largest_user_key);
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
+  //
+  // 给 Minor Compaction 使用.
   int PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                  const Slice& largest_user_key);
 
@@ -158,6 +167,10 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
+  /**
+   * 和 Ref, Unref 相关, 必要时需要讲自己从双向链表中摘出去.
+   */
+
   // 需要 vset 拿到 db 之类的信息
   VersionSet* vset_;  // VersionSet to which this Version belongs
   // next_ 和 prev_ 是因为这个是一个侵入式结构，但是我觉得可以准备一个 Handle, 然后去 vset_ 里面把自己摘掉.
@@ -167,6 +180,10 @@ class Version {
 
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
+
+  /**
+   * 下列是给 Compaction 提供的信息
+   */
 
   // Next file to compact based on seek stats.
   // SeekCompaction 信息。
@@ -184,8 +201,23 @@ class Version {
 
 /// VersionSet 是版本控制的一个大入口，包含 options
 /// 这个类负责的内容比较奇怪:
-/// 1. 整体的 seq_id 之类的信息，获取一个 total order 的序列号。
-/// 2. 存有一个 `[Version]` 这样的结构，保存多个版本, 这个版本也有 seq_id 之类的。
+/// 1. 整体的 seq_id 之类的信息，获取一个 total order 的序列号。每次 Write 都会在这里记录一下 LSN 推进.
+/// 2. 存有一个 `[Version]` 这样的结构(侵入式双向链表)，保存多个版本, 这个版本也有 seq_id 之类的.
+///     当然这其实只是一个全局的存储, 不涉及逻辑. 逻辑基本只会返回 newest.
+/// 3. 负责全局的最后 flush 的 sequence_number_, log file 文件, sst 文件名和水位的维护.
+///
+/// 这里每次 Snapshot 都能拿到 current 的 Version, 所以不需要别的策略、不需要根据 sequence 拿到
+/// 对应的 Version.
+///
+/// 这里隐含了几点:
+/// 1. snapshot 的 sequence 可读的 kv 不会被 GC 掉.
+/// 2. 更高的 sequence 写的数据不会被这个 snapshot 读取, 所以读一个高位的 Version 是没问题的.
+///
+/// 这里的要求是, 已经读取的 View 要是一致的, 不能从这个 SST 读 level0, 然后去别的地方读 Level1.
+/// 而且完成对应 SST 读取之前不能释放掉 Ref.
+///
+/// 这里在存储上对应 CURRENT 指向的 MANIFEST, 每次写会写一个 VersionEdit(二进制). 在 Open
+/// 的时候会切到一个新的 MANIFEST.
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
@@ -341,7 +373,9 @@ class VersionSet {
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Note: 这个地方是现有的 MANIFEST 文件
-  // 这两个文件是 lazily open, 只有第一次写入的时候才会创建
+  // 这两个文件是 lazily open, 只有第一次写入的时候才会创建, 然后一直往里面写入, 不会切换.
+  // RocksDB 会根据大小切换.
+
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;

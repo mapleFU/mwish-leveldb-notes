@@ -122,7 +122,7 @@ bool ParseFileName(const std::string& filename, uint64_t* number,
   return true;
 }
 
-// 创建一个临时文件，然后丢到 current 里面.
+//! 创建一个临时 MANIFEST 文件，然后把文件名丢到 current 里面.
 Status SetCurrentFile(Env* env, const std::string& dbname,
                       uint64_t descriptor_number) {
   // Remove leading "dbname/" and add newline to manifest file name

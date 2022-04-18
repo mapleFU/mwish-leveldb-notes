@@ -19,7 +19,10 @@ class VersionSet;
 // 其中别的字段都很好理解，比较恶心的是 `allowed_seeks`
 //
 // refs 是 Version 对它的引用, Version 析构的时候, 会减少这个引用. 这部分内容是 replay 出来的。
-// TODO(mwish): 搞清楚 FileMetaData 生命周期
+//
+// FileMetaData 基本上逻辑内容是 Immutable, 根据 VersionEdit 恢复出来的. 如果版本比较多,
+// 为了避免存储过多的内存 FileMetaData, 这里用 RC 来处理.
+// RC 的并发是由 VersionSet 管理的, 它应该能保证 `refs` 的串行处理。
 struct FileMetaData {
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0) {}
 
@@ -31,7 +34,9 @@ struct FileMetaData {
   InternalKey largest;   // Largest internal key served by table
 };
 
-// 这个 edit 有日志文件 Id, 文件 id
+//! 这个 edit 有日志文件 Id, 文件 id.
+//! 包含:
+//! 1. comparator_, log 文件信息, SST 文件信息 (有效推进 文件 id).
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
@@ -61,8 +66,11 @@ class VersionEdit {
     has_next_file_number_ = true;
     next_file_number_ = num;
   }
-  // sequence_id
-  // 在 `VersionSet::LogAndApply` 的时候, VersionEdit 会被设置 last_sequence.
+
+  //! sequence_id.
+  //!
+  //! 在 `VersionSet::LogAndApply` 的时候, VersionEdit 会被设置 last_sequence.
+  //! 无论是任何 Compaction, 都会推进 Sequence.
   void SetLastSequence(SequenceNumber seq) {
     has_last_sequence_ = true;
     last_sequence_ = seq;
