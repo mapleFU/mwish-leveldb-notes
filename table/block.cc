@@ -93,7 +93,8 @@ class Block::Iter : public Iterator {
   // Restart 是为了 Prev 准备的。
   uint32_t restart_index_;  // Index of restart block in which current_ falls
 
-  // TODO(mwish): 这几个字段我大概知道是什么意思，但是感觉还需要 make clear 一下。
+  // key_ 是目前拥有的 key, 因为 key 是会被压缩的.
+  // value_ 并不会被压缩, 所以 value_ 可以是个 slice_.
   std::string key_;
   Slice value_;
   Status status_;
@@ -103,6 +104,9 @@ class Block::Iter : public Iterator {
   }
 
   // Return the offset in data_ just past the end of the current entry.
+  //
+  // (unshared, shared, unshared key, value).
+  // `value_` 本身是现在值存储的 slice, `value_` 之后就是下一条记录.
   inline uint32_t NextEntryOffset() const {
     return (value_.data() + value_.size()) - data_;
   }
@@ -145,11 +149,15 @@ class Block::Iter : public Iterator {
     return value_;
   }
 
+  //! Next 比较简单, 验证自身是 valid 的, 然后读取 (shared, unshared) 的长度,
+  //!  再 fetch 具体的内容.
   void Next() override {
     assert(Valid());
     ParseNextKey();
   }
 
+  //! Prev 比较奇怪, 是记一个 original 的位置,
+  //!  找到对应的 RestartPoint, 然后一直 next 过去, 直到正好 `NextEntryOffset >= original`.
   void Prev() override {
     assert(Valid());
 
@@ -171,6 +179,11 @@ class Block::Iter : public Iterator {
     } while (ParseNextKey() && NextEntryOffset() < original);
   }
 
+  //! Seek 到 `target`.
+  //!
+  //! 1. 对 num_restarts_ 进行二分查找, 然后找到对应的 RestartPoint. 如果现在已经是 Valid() 了, 用现在
+  //!     的 restart 来减少二分的区间.
+  //! 2. 定位到 restart 的左侧, 然后 Next 来扫描过去.
   void Seek(const Slice& target) override {
     // Binary search in restart array to find the last restart point
     // with a key < target
@@ -241,6 +254,7 @@ class Block::Iter : public Iterator {
     ParseNextKey();
   }
 
+  //! 找到最后一个 Restart, 然后扫描到最后.
   void SeekToLast() override {
     SeekToRestartPoint(num_restarts_ - 1);
     while (ParseNextKey() && NextEntryOffset() < restarts_) {
@@ -257,8 +271,12 @@ class Block::Iter : public Iterator {
     value_.clear();
   }
 
-  // 找到下一个 Key
-  // 
+  //! 找到下一个 Key, value.
+  //!
+  //! 1. 找到下一条记录应该的开头
+  //! 2. 保证记录不会超限. 如果超过限制,
+  //! 3. 读取 `shared, non_shared, value_length`.
+  //! 4. 构造 key_, 设置 value_ 的 slice,
   bool ParseNextKey() {
     // 先改变 offset
     current_ = NextEntryOffset();
@@ -285,7 +303,8 @@ class Block::Iter : public Iterator {
       key_.append(p, non_shared);
       value_ = Slice(p + non_shared, value_length);
       
-      // 查看是否要更新 restart, 如果不要的话
+      // 查看是否要更新 restart, 如果不要的话, 要怎么样.
+      // 这个地方是直接查了一下没超过所有 restart + 下一个 restart 空间有没有超过这里.
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;

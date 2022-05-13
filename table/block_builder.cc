@@ -86,7 +86,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
       shared++;
     }
   } else {
-    // Restart compression
+    // Restart compression, put size to `restart`.
     restarts_.push_back(buffer_.size());
     counter_ = 0;
   }
