@@ -18,14 +18,19 @@ static const size_t kFilterBase = 1 << kFilterBaseLg;
 FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
     : policy_(policy) {}
 
+//! 创建一个对应的 Filter, 把记录添加到 `result_` 中. 这里的 `block_offset` 对应的
+//! 是压缩前的 offset.
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
   assert(filter_index >= filter_offsets_.size());
+  // 这个地方就是个很明显的 hack, 要求比现在 filter 多.
+  // 这个地方可能是写了一个巨大的 kv, 比如直接写了个 8kB 的, 就要滚几个空白的.
   while (filter_index > filter_offsets_.size()) {
     GenerateFilter();
   }
 }
 
+//! 仅仅在内存中添加, 在 StartBlock/Finish 的时候一起构建.
 void FilterBlockBuilder::AddKey(const Slice& key) {
   Slice k = key;
   start_.push_back(keys_.size());
@@ -44,14 +49,18 @@ Slice FilterBlockBuilder::Finish() {
   }
 
   PutFixed32(&result_, array_offset);
+  // 最后放配置的 BaseLg
   result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
   return Slice(result_);
 }
 
+//! 直接 CreateFilter 一把全部创建了.
 void FilterBlockBuilder::GenerateFilter() {
   const size_t num_keys = start_.size();
   if (num_keys == 0) {
     // Fast path if there are no keys for this filter
+    //
+    // 加入一个 0, 这个地方可能是
     filter_offsets_.push_back(result_.size());
     return;
   }
@@ -66,8 +75,13 @@ void FilterBlockBuilder::GenerateFilter() {
   }
 
   // Generate filter for current set of keys and append to result_.
+  // 要记录一下之前内容的偏移量
   filter_offsets_.push_back(result_.size());
+
+  // 调用 `CreateFilter`, 来创建写入, 这里是一次性全部写入了
   policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);
+
+  // 在单次构建完之后, 清空所有的内容.
 
   tmp_keys_.clear();
   keys_.clear();
@@ -87,8 +101,10 @@ FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,
   num_ = (n - 5 - last_word) / 4;
 }
 
+//! keyMayMatch 本身要引入一个 block_offset 来做 KeyMayMatch.
 bool FilterBlockReader::KeyMayMatch(uint64_t block_offset, const Slice& key) {
   uint64_t index = block_offset >> base_lg_;
+  // 在 Offset 字段读到相关的范围.
   if (index < num_) {
     uint32_t start = DecodeFixed32(offset_ + index * 4);
     uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);

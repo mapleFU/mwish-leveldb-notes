@@ -14,7 +14,9 @@ static uint32_t BloomHash(const Slice& key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
 }
 
-// BloomFilter 比较恶心的地方是这个 FilterPolicy 接口，会 append 到一个 dst. 然后 KeyMatches 又是根据这玩意来判断的，就很滑稽...
+//! BloomFilter 比较恶心的地方是这个 FilterPolicy 接口，会 append 到一个 dst. 然后 KeyMatches 又是根据这玩意来判断的，就很滑稽...
+//!
+//! 这里用 bits_per_key 来做一个估算, 计算需要多少 key.
 class BloomFilterPolicy : public FilterPolicy {
  public:
   explicit BloomFilterPolicy(int bits_per_key) : bits_per_key_(bits_per_key) {
@@ -26,6 +28,7 @@ class BloomFilterPolicy : public FilterPolicy {
 
   const char* Name() const override { return "leveldb.BuiltinBloomFilter2"; }
 
+  //! 内容全部写入 `dst`.
   void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
     // Compute bloom filter size (in both bits and bytes)
     size_t bits = n * bits_per_key_;

@@ -229,6 +229,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   iiter->Seek(k);
+  // Table 的 Get 会扫描每个 Block, 来 Get 对应的内容.
   if (iiter->Valid()) {
     Slice handle_value = iiter->value();
     FilterBlockReader* filter = rep_->filter;

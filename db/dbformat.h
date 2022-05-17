@@ -123,6 +123,8 @@ class InternalKeyComparator : public Comparator {
 };
 
 // Filter policy wrapper that converts from internal keys to user keys
+//
+// 一个 wrapper, 绑定实际的 user_policy, 给它赛具体的 user-key.
 class InternalFilterPolicy : public FilterPolicy {
  private:
   const FilterPolicy* const user_policy_;

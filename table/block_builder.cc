@@ -52,7 +52,8 @@ void BlockBuilder::Reset() {
   last_key_.clear();
 }
 
-// 返回的是对应的 Buf Size + Restart + restart length
+// 返回的是对应的 Buf Size + Restart + restart length.
+// 这个大小应该是完全准确的.
 size_t BlockBuilder::CurrentSizeEstimate() const {
   return (buffer_.size() +                       // Raw data buffer
           restarts_.size() * sizeof(uint32_t) +  // Restart array

@@ -116,6 +116,9 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->num_entries++;
   r->data_block.Add(key, value);
 
+  // 构建的时候, 会 Flush Data block.
+  // 没有 Flush 的内容是 `CurrentSizeEstimate`, 这个 size 其实是一个比较准确的未 Flush 的 size.
+  // 但是 Block 可能会被单个走 snappy 压缩, 所以可能不对应实际存储的 size.
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
   if (estimated_block_size >= r->options.block_size) {
     Flush();
@@ -133,11 +136,17 @@ void TableBuilder::Flush() {
     r->pending_index_entry = true;
     r->status = r->file->Flush();
   }
+  // 推进 Filter.
   if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
 }
 
+//! 写入一个对应的 Data block.
+//! 单个 Block 可以是压缩的, Block 会被 snappy 压缩.
+//! 压缩解压是很费的, 所以有 BlockCache.
+//!
+//! TODO(mwish): 大块的 Key-Value 是怎么处理的?
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
@@ -174,11 +183,14 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   block->Reset();
 }
 
+//! 在 Block 周围补上 crc32 标记.
 void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type, BlockHandle* handle) {
   Rep* r = rep_;
+  // 在前面补上一个 handle, 做块内容的记录, 然后在 handle 里面挂一下.
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  // 压缩之后写一个 crc.
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
@@ -187,6 +199,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
     crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
     EncodeFixed32(trailer + 1, crc32c::Mask(crc));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
+    // 推进 offset.
     if (r->status.ok()) {
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
@@ -195,6 +208,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 
 Status TableBuilder::status() const { return rep_->status; }
 
+//! 每个 Block 会有不同的 compression 策略.
 Status TableBuilder::Finish() {
   Rep* r = rep_;
   Flush();
@@ -209,7 +223,7 @@ Status TableBuilder::Finish() {
                   &filter_block_handle);
   }
 
-  // Write metaindex block
+  // Write metaindex block (指向 Filter block).
   if (ok()) {
     BlockBuilder meta_index_block(&r->options);
     if (r->filter_block != nullptr) {
@@ -225,7 +239,7 @@ Status TableBuilder::Finish() {
     WriteBlock(&meta_index_block, &metaindex_block_handle);
   }
 
-  // Write index block
+  // Write index block (指向所有 data block)
   if (ok()) {
     if (r->pending_index_entry) {
       r->options.comparator->FindShortSuccessor(&r->last_key);
