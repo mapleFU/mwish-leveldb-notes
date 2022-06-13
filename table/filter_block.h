@@ -27,6 +27,9 @@ class FilterPolicy;
 //
 // The sequence of calls to FilterBlockBuilder must match the regexp:
 //      (StartBlock AddKey*)* Finish
+//
+// 这里通过 Name() 来区分 BF, 如果 Name 不匹配, 则不使用. 除了 Name, 如果是 BF,
+//  可能会把 BitsPerKey... 编码在实现里.
 class FilterBlockBuilder {
  public:
   explicit FilterBlockBuilder(const FilterPolicy*);
@@ -42,9 +45,14 @@ class FilterBlockBuilder {
   void GenerateFilter();
 
   const FilterPolicy* policy_;
+  //! 这个地方实际上理应是 std::vector<std::string>, 这里用
+  //! keys + vector<start> 来做相关的优化.
   std::string keys_;             // Flattened key contents
   std::vector<size_t> start_;    // Starting index in keys_ of each key
+
   std::string result_;           // Filter data computed so far
+
+  //! 在 Build 的时候, 把 keys_ + start_ 构建成 tmp_keys_.
   std::vector<Slice> tmp_keys_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
 };

@@ -18,6 +18,10 @@
 
 namespace leveldb {
 
+/*
+ * TableBuilder::Rep 构建的时候, 使用
+ */
+
 struct TableBuilder::Rep {
   Rep(const Options& opt, WritableFile* f)
       : options(opt),
@@ -32,6 +36,7 @@ struct TableBuilder::Rep {
                          ? nullptr
                          : new FilterBlockBuilder(opt.filter_policy)),
         pending_index_entry(false) {
+    // 这个地方有点 hack, index-block 和 block 用了同一种机制处理
     index_block_options.block_restart_interval = 1;
   }
 
@@ -56,15 +61,20 @@ struct TableBuilder::Rep {
   // blocks.
   //
   // Invariant: r->pending_index_entry is true only if data_block is empty.
+  //
+  // 这个地方比较 hack, 不会保存整个 key, 而是靠和下一个 key 来 diff 做索引, 来减小
+  // 这里存储的长度.
   bool pending_index_entry;
   BlockHandle pending_handle;  // Handle to add to index block
 
+  // compress_output 用来承接
   std::string compressed_output;
 };
 
 TableBuilder::TableBuilder(const Options& options, WritableFile* file)
     : rep_(new Rep(options, file)) {
   if (rep_->filter_block != nullptr) {
+    // 感觉这个 StartBlock(0) 是没有意义的.
     rep_->filter_block->StartBlock(0);
   }
 }
@@ -101,6 +111,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
 
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
+    // 找到最短的 separ, 减小 index-block 的空间放大.
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
@@ -163,7 +174,6 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
     case kNoCompression:
       block_contents = raw;
       break;
-
     case kSnappyCompression: {
       std::string* compressed = &r->compressed_output;
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&

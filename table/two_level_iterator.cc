@@ -19,6 +19,8 @@ typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 /// 1. 从单个 Block 中读取，这里的 index_iter 是 index block 的迭代器，BlockFunction 是读取 block 内容。见 `TableCache::NewIterator`.
 /// 2. 读某一层的数据。index_iter 是单层文件元信息的迭代器( `Version::LevelFileNumIterator`)，
 ///    BlockFunction 是 (1) 中的整合。见 `Version::NewConcatenatingIterator`.
+///
+/// 这里的 Next 并非是 Datablock 的, 而是
 class TwoLevelIterator : public Iterator {
  public:
   TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
@@ -107,6 +109,7 @@ void TwoLevelIterator::SeekToLast() {
 void TwoLevelIterator::Next() {
   assert(Valid());
   data_iter_.Next();
+  // 跳过一些 Invalid 的数据, 如果 data_iter 到了 !Valid, 才会 trigger 这段逻辑.
   SkipEmptyDataBlocksForward();
 }
 
