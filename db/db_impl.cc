@@ -614,7 +614,8 @@ void DBImpl::CompactMemTable() {
 
   // 写 L0 SST
 
-  // TODO(mwish): 一下没看出 base 有啥用
+  // Q(mwish): 一下没看出 base 有啥用
+  // A: Write 的流程是肯定不能带锁的, 这里需要 ref version 来避免这个 version 飞了.
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
   base->Unref();
@@ -646,7 +647,6 @@ void DBImpl::CompactMemTable() {
 }
 
 // 用户上层可能发现有些地方读起来有问题，然后手动的 `CompactRange`
-// TODO(mwish): 我真的搞不懂，为啥正常的方法会调用到 `TEST_` 开头的方法。
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
   {
@@ -992,6 +992,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(compact->outfile == nullptr);
 
   // 确定可以删除的 seq id
+  // 这个地方是一个奇怪的机制联动, 对于单 Key Get 而言, 这里没有 snapshot,
+  // seq_num 只是找到 Version 的帮助者, 而对于 Snapshot 而言, 这里意味着一个
+  // 强保护, 旧文件的 ghost 记录不能被删除, 因为每次读都会重新 ref 一次 Version.
   if (snapshots_.empty()) {
     // 没有任何 snapshot, 随便删掉 key
     compact->smallest_snapshot = versions_->LastSequence();
@@ -1235,6 +1238,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   MutexLock l(&mutex_);
 
   // 如果外部设置了 snapshot 来读，那就用外部的 Snapshot, 否则使用版本链最后一个序号。
+  // 这里需要注意的是, Get 本身并不会生成一个 Snapshot, 它只会采用 latest 来读取.
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot =
@@ -1251,7 +1255,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 
   MemTable* mem = mem_;
   MemTable* imm = imm_;
-  // TODO(mwish): 为什么是 current? 不从旧的读吗？
+  // 尝试从最新的读, 来尽量避免拖慢 Version 的 GC.
   Version* current = versions_->current();
   mem->Ref();
   if (imm != nullptr) imm->Ref();

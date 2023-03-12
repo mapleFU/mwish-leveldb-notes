@@ -161,9 +161,9 @@ LevelDB 提供了一个 `sequence_id` 来指定顺序。它定义的是读相对
 1. 写会推高 `last_sequence_`, 而且是一次性推高很多，等同于写入的 batch
 2. 读会拿到 `last_sequence_` , 并根据这个值来决定自己读到什么。
 
-实际上，即使不外部创建 Snapshot, 内部也会拿到一个最近的 sequence id, 来决定这个时候的行为。
+实际上，即使不外部创建 Snapshot, 内部也会拿到一个最近的 sequence id, 来决定这个时候读的 Version, 即文件的一致性快照。
 
-LevelDB 拿到了这个 `sequence_id` 之后, 需要接下来决定自己要读什么。然后它会找到最新的 `Version`. `Version` 是 LevelDB 中 SST 文件布局的一个版本，有任何的 compaction 发生，都会生成新的 Version。那么为什么它每次都会找到新的 Version, 而不是根据 snapshot 来找版本链呢？（其实这个地方我还没仔细考虑过，记个 TODO....）
+LevelDB 拿到了这个 `sequence_id` 之后, 需要接下来决定自己要读什么。然后它会找到最新的 `Version`. `Version` 是 LevelDB 中 SST 文件布局的一个版本，有任何的 compaction 发生，都会生成新的 Version。那么为什么它每次都会找到新的 Version, 而不是根据 snapshot 来找版本链呢？实际上，因为我们说的，snapshot 会添加一个 Snapshot, 读的时候只会根据 latest snapshot 拿到一个版本, 然后根据这个版本去做一致性读.
 
 拿到 Version 之后，单个 Version 里面，内容是不变的。Version 可以提供每层的 `Iterator`, 拿到这些就可以构建 `MergingIterator` 去读啦~
 
