@@ -71,7 +71,7 @@ class Version {
     int seek_file_level;
   };
 
-  // TODO(mwish): why do we need this?
+  // Avoid GC this version.
   //
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.

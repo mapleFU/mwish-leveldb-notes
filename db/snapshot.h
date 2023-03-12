@@ -36,6 +36,16 @@ class SnapshotImpl : public Snapshot {
 #endif  // !defined(NDEBUG)
 };
 
+
+/**
+ * SnapshotList 是一个侵入式双向链表, 保留了链表的头尾. 并发由 DB::mutex_
+ * 保护, 这里也维护了双向链表的头尾.
+ *
+ * New 根据 seq_id 生成一个新的 snapshot, 这里保证了 seq 单调非递减(可能相同)
+ * 所以 head 一定指向最新的记录, 然后可以通过 head.next 找到 oldest.
+ *
+ * 同时, Get 拿到的 snapshot_ts 和 newest 的 snapshot_ts 是同一个.
+ */
 class SnapshotList {
  public:
   SnapshotList() : head_(0) {
