@@ -97,8 +97,8 @@ LevelDB 给整个需要的链路都加入了 `Env*`, 来支持各个平台系统
 
 LevelDB 的数据是以 SST 组织的，SST 内切分成了不同的 block, 以便提供 Index/CRC/缓存。Block Size 和性能有比较大的关系。LevelDB 文档里面提示：
 
-1. Scan 居多的话，那么 Block Size 可以设置小一点。
-2. Point Get 居多的话，Block Size 可以设大一点。
+1. Scan 居多的话，那么 Block Size 可以设置大一点。
+2. Point Get 居多的话，Block Size 可以设小一点。
 
 RocksDB 文档也有对应内容。
 
