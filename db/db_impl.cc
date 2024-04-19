@@ -1188,6 +1188,10 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {
   mutex_.Lock();
+  // 这个接口拿到最近的 LastSequence, 如果是没有 options.snapshot,
+  // 后续 Get 的时候，会尝试用这个 sequence.
+  //
+  // 这个地方受到 `mutex_` 保护.
   *latest_snapshot = versions_->LastSequence();
 
   // Collect together all needed child iterators
@@ -1205,6 +1209,8 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   }
 
   // 添加 versions 里面的 Iterator.
+  //
+  // 这个地方受 `mutex_` 保护.
   versions_->current()->AddIterators(options, &list);
 
   // Merging iterator

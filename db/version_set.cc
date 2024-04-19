@@ -236,6 +236,7 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
 void Version::AddIterators(const ReadOptions& options,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
+  // L0 是多个 SortedRun, 所以分开处理.
   for (size_t i = 0; i < files_[0].size(); i++) {
     iters->push_back(vset_->table_cache_->NewIterator(
         options, files_[0][i]->number, files_[0][i]->file_size));

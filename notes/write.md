@@ -174,6 +174,10 @@ Memtable 和 LogSequence 已经介绍过了，这里介绍 SST 相关的。Compa
 
 那我们考虑一个问题。有一个巨早拿到的 Snapshot, 过了很久之后被读取。这个时候拿到的 `Version` 是 `current`. 这个地方，怎么保证被删掉的文件数据还能读呢？这个是靠 Compaction 的时候，读到的 log_id 保证的。假如我们有一个很早的 snapshot, 它的 SST 会被删除，但是相关的记录是不会被删除的。
 
+这里等价于, Snapshot 本身只提供一个单调的 Snapshot 链. 而文件本身的回收和 Iterator 相关, Version 构建 Iterator 的时候, 会 ref() 一份 version, Iterator cleanup 的时候回收. Snapshot 本身只影响对应 id 之下垃圾数据的回收, 不会影响文件的回收.
+
+RocksDB 文档提到, 如果短读或者 forward scan, 可以不用 snapshot, 但是如果是长读或者 reverse scan, 需要 snapshot. ( 如果推荐只有一种解释，就是backward 慢 )
+
 ---
 
 * LevelDB Log: WAL of LSMTree C0  https://zhuanlan.zhihu.com/p/145178907
